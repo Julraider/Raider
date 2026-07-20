@@ -10,6 +10,7 @@ import type {
   StatusResponse,
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Db } from "../db/index";
 import { getMigrationStatus } from "../db/migrate";
 import {
@@ -33,6 +34,10 @@ export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
  */
 export function createApp(db: Db, chat: ChatFn): Hono {
   const app = new Hono();
+
+  // Lokale Clients (auch der Electron-Renderer im Browser) dürfen zugreifen.
+  // Der Core lauscht ohnehin nur auf localhost.
+  app.use("*", cors({ origin: (origin) => origin ?? "*" }));
 
   app.get("/status", (c) => {
     const body: StatusResponse = {

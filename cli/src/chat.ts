@@ -1,11 +1,11 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { ApiError, createSession, postSessionMessage, resolveBaseUrl } from "./client";
+import { ApiError, coreClient, resolveBaseUrl } from "./client";
 
 /**
- * Interaktiver CLI-Chat (Schritt 3, ab Schritt 4 DB-gestützt): der erste echte
- * Dialog. Redet ausschließlich über die lokale API. Der Verlauf lebt jetzt im
- * Core (SQLite) — die CLI hält keinen Zustand mehr und der Dialog überlebt Neustart.
+ * Interaktiver CLI-Chat, DB-gestützt (Schritte 3–4). Redet ausschließlich über
+ * die lokale API. Der Verlauf lebt im Core (SQLite) — die CLI hält keinen
+ * Zustand mehr und der Dialog überlebt Neustart.
  *
  * Nutzung:  npm run chat        (Core muss laufen: npm run dev)
  * Befehle:  /help  /reset  /model <id>  /exit
@@ -21,10 +21,11 @@ const HELP = [
 
 async function main(): Promise<void> {
   const baseUrl = resolveBaseUrl();
+  const client = coreClient();
 
   let sessionId: number;
   try {
-    sessionId = (await createSession(baseUrl, { channel: "cli" })).id;
+    sessionId = (await client.createSession({ channel: "cli" })).id;
   } catch {
     stdout.write(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?\n`);
     process.exit(1);
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
     }
     if (input === "/reset") {
       try {
-        sessionId = (await createSession(baseUrl, { channel: "cli" })).id;
+        sessionId = (await client.createSession({ channel: "cli" })).id;
         stdout.write(`(neue Sitzung #${sessionId})\n`);
       } catch {
         stdout.write("Konnte keine neue Sitzung anlegen.\n");
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      const response = await postSessionMessage(baseUrl, sessionId, {
+      const response = await client.sendMessage(sessionId, {
         content: input,
         ...(model ? { model } : {}),
       });

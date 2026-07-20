@@ -1,4 +1,4 @@
-import { ApiError, resolveBaseUrl, searchMessages } from "./client";
+import { ApiError, coreClient, resolveBaseUrl } from "./client";
 
 /**
  * Volltextsuche über gespeicherte Nachrichten (Memory-Ebene 2).
@@ -13,10 +13,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const baseUrl = resolveBaseUrl();
-
   try {
-    const { hits } = await searchMessages(baseUrl, query);
+    const { hits } = await coreClient().search(query);
     if (hits.length === 0) {
       console.log("Keine Treffer.");
       return;
@@ -30,7 +28,7 @@ async function main(): Promise<void> {
     if (error instanceof ApiError) {
       console.error(`Fehler (${error.status}): ${error.message}`);
     } else {
-      console.error(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?`);
+      console.error(`Kein Core erreichbar unter ${resolveBaseUrl()}. Läuft 'npm run dev'?`);
     }
     process.exit(1);
   }

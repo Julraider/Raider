@@ -3,6 +3,9 @@
  * Diese Typen nie in einzelnen Clients duplizieren — sie leben nur hier.
  */
 
+// Gemeinsamer HTTP-Client (von CLI und Electron-Renderer genutzt).
+export { ApiError, createRaiderClient, type RaiderClient } from "./client";
+
 /** Zustand der Datenbank, wie ihn der Core nach außen meldet. */
 export interface DatabaseStatus {
   /** Ist die Verbindung zur SQLite-Datei offen? */

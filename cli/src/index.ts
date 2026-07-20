@@ -1,4 +1,4 @@
-import { ApiError, postChat, resolveBaseUrl } from "./client";
+import { ApiError, coreClient, resolveBaseUrl } from "./client";
 
 /**
  * Einmalige Frage an den Core (Schritt 2). Redet ausschließlich über die
@@ -18,10 +18,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const baseUrl = resolveBaseUrl();
-
   try {
-    const response = await postChat(baseUrl, {
+    const response = await coreClient().chat({
       messages: [{ role: "user", content: prompt }],
     });
     console.log(response.content);
@@ -32,7 +30,7 @@ async function main(): Promise<void> {
     if (error instanceof ApiError) {
       console.error(`Fehler (${error.status}): ${error.message}`);
     } else {
-      console.error(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?`);
+      console.error(`Kein Core erreichbar unter ${resolveBaseUrl()}. Läuft 'npm run dev'?`);
     }
     process.exit(1);
   }
