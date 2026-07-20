@@ -1,0 +1,2 @@
+# Migrationen leben hier: nummerierte .sql-Dateien, z. B. 001_sessions.sql
+# Im Skelett noch leer — das Schema hat bewusst noch keine Tabellen.

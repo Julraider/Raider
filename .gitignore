@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/
+
+# Local data & secrets — NEVER commit these
+.env
+.env.*
+.keys
+*.db
+*.db-shm
+*.db-wal
+.raider-data/
+
+# OS / editor cruft
+.DS_Store
+coverage/
