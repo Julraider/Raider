@@ -1,4 +1,9 @@
 import type { ChatMessage, ChatRequest, ChatResponse } from "@raider/shared";
+import { MissingApiKeyError, ProviderError } from "./errors";
+import type { Provider } from "./provider";
+
+// Bequemer Re-Export, damit Aufrufer die Fehler aus einem Ort beziehen können.
+export { MissingApiKeyError, ProviderError } from "./errors";
 
 /**
  * Adapter für Anthropic (Claude). Ruft die Messages-API mit dem eingebauten
@@ -6,6 +11,7 @@ import type { ChatMessage, ChatRequest, ChatResponse } from "@raider/shared";
  * Anbieterformat verlässt dieses Modul nie.
  */
 
+/** Konfiguration mit garantiertem Key (für den Low-Level-Aufruf). */
 export interface AnthropicConfig {
   apiKey: string;
   /** Basis-URL, z. B. https://api.anthropic.com (per ANTHROPIC_BASE_URL setzbar). */
@@ -14,27 +20,16 @@ export interface AnthropicConfig {
   defaultMaxTokens: number;
 }
 
+/** Konfiguration wie sie der Core hält — Key kann fehlen. */
+export interface AnthropicProviderConfig {
+  apiKey?: string | undefined;
+  baseUrl: string;
+  defaultModel: string;
+  defaultMaxTokens: number;
+}
+
 /** Version der Anthropic-API (fester Wert laut Anbieter-Doku). */
 const ANTHROPIC_VERSION = "2023-06-01";
-
-/** Fehler eines Anbieteraufrufs mit HTTP-Status. */
-export class ProviderError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "ProviderError";
-    this.status = status;
-  }
-}
-
-/** Wird geworfen, wenn kein API-Key gesetzt ist. */
-export class MissingApiKeyError extends Error {
-  constructor() {
-    super("Kein API-Key gesetzt (ANTHROPIC_API_KEY).");
-    this.name = "MissingApiKeyError";
-  }
-}
 
 /** Rohe Antwortstruktur der Anthropic Messages-API — nur modulintern. */
 interface RawAnthropicResponse {
@@ -42,6 +37,16 @@ interface RawAnthropicResponse {
   stop_reason: string | null;
   content: Array<{ type: string; text?: string }>;
   usage: { input_tokens: number; output_tokens: number };
+}
+
+/** Baut einen Anthropic-Provider; ohne Key wirft er beim Aufruf MissingApiKeyError. */
+export function createAnthropicProvider(config: AnthropicProviderConfig): Provider {
+  return {
+    complete(request) {
+      if (!config.apiKey) throw new MissingApiKeyError();
+      return complete({ ...config, apiKey: config.apiKey }, request);
+    },
+  };
 }
 
 /** Ruft ein Modell auf und gibt die Antwort im internen Format zurück. */

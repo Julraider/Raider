@@ -39,10 +39,21 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_DATA_DIR` | `~/Raider` | Datenordner |
 | `RAIDER_DB_PATH` | `<DATA_DIR>/raider.db` | Pfad zur SQLite-Datei |
 | `RAIDER_PORT` | `4179` | Port der lokalen API |
+| `RAIDER_PROVIDER` | auto | `anthropic` oder `ollama`; ohne Wert: Anthropic wenn Key da, sonst Ollama |
 | `ANTHROPIC_API_KEY` | — | API-Key; nur serverseitig gelesen, nie geloggt |
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Basis-URL des Anbieters |
-| `RAIDER_MODEL` | `claude-opus-4-8` | Standardmodell |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Basis-URL von Anthropic |
+| `RAIDER_MODEL` | `claude-opus-4-8` | Anthropic-Standardmodell |
+| `RAIDER_OLLAMA_URL` | `http://localhost:11434` | Basis-URL des lokalen Ollama-Servers |
+| `RAIDER_OLLAMA_MODEL` | `llama3.2` | Ollama-Standardmodell |
 | `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
+
+## Anbieter
+
+Zwei Anbieter hinter derselben internen Schnittstelle:
+- **Anthropic (Claude)** — braucht `ANTHROPIC_API_KEY`.
+- **Ollama** — lokale Modelle, kostenlos, kein Key. Ollama installieren
+  (`ollama.com`), ein Modell laden (`ollama pull llama3.2`), dann startet der
+  Core automatisch damit, solange kein Anthropic-Key gesetzt ist.
 
 ## API
 

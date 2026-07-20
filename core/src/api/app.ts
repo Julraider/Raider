@@ -21,7 +21,7 @@ import {
   listSessions,
   searchMessages,
 } from "../db/repository";
-import { MissingApiKeyError, ProviderError } from "../providers/anthropic";
+import { MissingApiKeyError, ProviderError } from "../providers/errors";
 import { version } from "../version";
 
 /** Ruft ein Modell auf und liefert die Antwort im internen Format. */
@@ -155,8 +155,9 @@ function chatErrorResponse(c: Context, error: unknown): Response {
     return c.json({ error: error.message }, 503);
   }
   if (error instanceof ProviderError) {
-    const status = error.status === 401 || error.status === 429 ? error.status : 502;
-    return c.json({ error: error.message }, status);
+    // Auth-, Rate-Limit- und „Dienst nicht erreichbar"-Fehler durchreichen.
+    const passthrough = error.status === 401 || error.status === 429 || error.status === 503;
+    return c.json({ error: error.message }, passthrough ? error.status : 502);
   }
   return c.json({ error: "Interner Fehler beim Modellaufruf." }, 500);
 }
