@@ -24,6 +24,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | Befehl | Wirkung |
 |---|---|
 | `npm run dev` | Core im Watch-Modus starten |
+| `npm run ask -- "Frage"` | Eine Frage an den Core stellen (Core muss laufen) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -36,9 +37,18 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_DATA_DIR` | `~/Raider` | Datenordner |
 | `RAIDER_DB_PATH` | `<DATA_DIR>/raider.db` | Pfad zur SQLite-Datei |
 | `RAIDER_PORT` | `4179` | Port der lokalen API |
+| `ANTHROPIC_API_KEY` | — | API-Key; nur serverseitig gelesen, nie geloggt |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Basis-URL des Anbieters |
+| `RAIDER_MODEL` | `claude-opus-4-8` | Standardmodell |
+| `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
 
-## `/status`
+## API
 
 ```
-GET /status  →  { status, version, database: { connected, migrations } }
+GET  /status  →  { status, version, database: { connected, migrations } }
+POST /chat    →  { role, content, model, stopReason, usage }
+     Body:       { messages: [{ role, content }], model?, maxTokens?, system? }
 ```
+
+Der Anbieter (aktuell Anthropic) sitzt hinter einem Adapter, der immer das
+interne Nachrichtenformat zurückgibt — nie das rohe Anbieterformat.

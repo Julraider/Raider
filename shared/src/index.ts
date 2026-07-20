@@ -23,3 +23,49 @@ export interface StatusResponse {
   version: string;
   database: DatabaseStatus;
 }
+
+/**
+ * Internes Nachrichtenformat.
+ *
+ * Provider-Adapter geben IMMER dieses Format zurück, nie das rohe
+ * Anbieterformat. Clients kennen nur diese Typen — so bleibt der Anbieter
+ * hinter dem Adapter austauschbar.
+ */
+
+/** Rolle einer Nachricht im internen Format. */
+export type ChatRole = "system" | "user" | "assistant";
+
+/** Eine einzelne Nachricht im internen Format. */
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+}
+
+/** Anfrage an einen Provider (über den Core, nie direkt vom Client). */
+export interface ChatRequest {
+  messages: ChatMessage[];
+  /** Modell-ID; fehlt sie, nimmt der Core sein Standardmodell. */
+  model?: string;
+  /** Obergrenze der Antwort-Tokens; fehlt sie, nimmt der Core seinen Standard. */
+  maxTokens?: number;
+  /** Optionaler Systemprompt (alternativ als system-Nachricht in messages). */
+  system?: string;
+}
+
+/** Token-Verbrauch eines Modellaufrufs. */
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Antwort eines Providers im internen Format. */
+export interface ChatResponse {
+  role: "assistant";
+  /** Reiner Text der Antwort (Textblöcke zusammengefügt). */
+  content: string;
+  /** Modell, das tatsächlich geantwortet hat. */
+  model: string;
+  /** Grund für das Ende der Generierung (z. B. "end_turn"), oder null. */
+  stopReason: string | null;
+  usage: ChatUsage;
+}

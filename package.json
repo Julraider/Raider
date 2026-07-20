@@ -17,6 +17,7 @@
     "dev": "tsx watch core/src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "ask": "tsx cli/src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write ."
