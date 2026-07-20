@@ -1,4 +1,4 @@
-import { ChatRequestError, postChat, resolveBaseUrl } from "./client";
+import { ApiError, postChat, resolveBaseUrl } from "./client";
 
 /**
  * Einmalige Frage an den Core (Schritt 2). Redet ausschließlich über die
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
       `\n[${response.model} · ${response.usage.inputTokens}→${response.usage.outputTokens} Tokens]`,
     );
   } catch (error) {
-    if (error instanceof ChatRequestError) {
+    if (error instanceof ApiError) {
       console.error(`Fehler (${error.status}): ${error.message}`);
     } else {
       console.error(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?`);

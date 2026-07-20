@@ -1,8 +1,14 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ChatResponse, StatusResponse } from "@raider/shared";
-import Database from "better-sqlite3";
+import type {
+  ChatResponse,
+  SearchResponse,
+  Session,
+  SessionMessagesResponse,
+  StatusResponse,
+} from "@raider/shared";
 import { describe, expect, it } from "vitest";
+import { openDatabase } from "../db/index";
 import { runMigrations } from "../db/migrate";
 import { createApp } from "./app";
 
@@ -14,20 +20,18 @@ const stubChat = async (): Promise<ChatResponse> => ({
   content: "Testantwort",
   model: "test-model",
   stopReason: "end_turn",
-  usage: { inputTokens: 1, outputTokens: 2 },
+  usage: { inputTokens: 5, outputTokens: 3 },
 });
 
-/** Frische App gegen eine flüchtige In-Memory-Datenbank. */
 function setupApp() {
-  const db = new Database(":memory:");
+  const db = openDatabase(":memory:");
   runMigrations(db, migrationsDir);
   return createApp(db, stubChat);
 }
 
 describe("GET /status", () => {
-  it("meldet Version und Datenbankstatus", async () => {
+  it("meldet Version und angewendete Migration", async () => {
     const app = setupApp();
-
     const res = await app.request("/status");
     expect(res.status).toBe(200);
 
@@ -35,37 +39,74 @@ describe("GET /status", () => {
     expect(body.status).toBe("ok");
     expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(body.database.connected).toBe(true);
-    // Im Skelett gibt es noch keine Migrationsdateien.
-    expect(body.database.migrations.applied).toBe(0);
-    expect(body.database.migrations.latest).toBeNull();
+    expect(body.database.migrations.applied).toBe(1);
+    expect(body.database.migrations.latest).toBe("001_sessions_messages.sql");
   });
 });
 
-describe("POST /chat", () => {
-  it("gibt die Antwort im internen Format zurück", async () => {
+describe("Sitzungen", () => {
+  it("legt eine Sitzung an, speichert einen Dialog-Zug und liest ihn zurück", async () => {
     const app = setupApp();
 
-    const res = await app.request("/chat", {
+    const created = await app.request("/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "Hallo" }] }),
+      body: JSON.stringify({ channel: "cli", title: "Test" }),
     });
+    expect(created.status).toBe(201);
+    const session = (await created.json()) as Session;
+    expect(session.channel).toBe("cli");
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ChatResponse;
-    expect(body.content).toBe("Testantwort");
-    expect(body.usage).toEqual({ inputTokens: 1, outputTokens: 2 });
+    const turn = await app.request(`/sessions/${session.id}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Hallo Core" }),
+    });
+    expect(turn.status).toBe(200);
+    const response = (await turn.json()) as ChatResponse;
+    expect(response.content).toBe("Testantwort");
+
+    const history = await app.request(`/sessions/${session.id}/messages`);
+    const body = (await history.json()) as SessionMessagesResponse;
+    expect(body.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(body.messages[0]?.content).toBe("Hallo Core");
+    expect(body.messages[1]?.tokensOut).toBe(3);
   });
 
-  it("lehnt einen leeren messages-Body mit 400 ab", async () => {
+  it("antwortet mit 404 für eine unbekannte Sitzung", async () => {
+    const app = setupApp();
+    const res = await app.request("/sessions/999/messages");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /search", () => {
+  it("findet gespeicherte Nachrichten per Volltext", async () => {
     const app = setupApp();
 
-    const res = await app.request("/chat", {
+    const created = await app.request("/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: [] }),
+      body: JSON.stringify({ channel: "cli" }),
+    });
+    const session = (await created.json()) as Session;
+
+    await app.request(`/sessions/${session.id}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "Erzähl mir etwas über Segelboote" }),
     });
 
+    const res = await app.request("/search?q=segelboote");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as SearchResponse;
+    expect(body.hits.length).toBeGreaterThan(0);
+    expect(body.hits[0]?.snippet).toContain("[Segelboote]");
+  });
+
+  it("verlangt einen Query-Parameter", async () => {
+    const app = setupApp();
+    const res = await app.request("/search");
     expect(res.status).toBe(400);
   });
 });

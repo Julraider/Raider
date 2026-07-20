@@ -69,3 +69,74 @@ export interface ChatResponse {
   stopReason: string | null;
   usage: ChatUsage;
 }
+
+/**
+ * Sitzungen und Nachrichten (Ebene 2 — durchsuchbare Historie).
+ * Der Core speichert Gespräche in SQLite; Clients halten keinen Verlauf mehr.
+ */
+
+/** Kanal, über den eine Sitzung läuft. */
+export type SessionChannel = "desktop" | "telegram" | "cli" | "cron";
+
+/** Eine gespeicherte Sitzung. */
+export interface Session {
+  id: number;
+  title: string | null;
+  channel: SessionChannel;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Anzahl Nachrichten (nur in Listen gesetzt). */
+  messageCount?: number;
+}
+
+/** Eine gespeicherte Nachricht. */
+export interface StoredMessage {
+  id: number;
+  sessionId: number;
+  role: ChatRole;
+  content: string;
+  tokensIn: number;
+  tokensOut: number;
+  createdAt: string;
+}
+
+/** Ein Treffer der Volltextsuche über Nachrichten. */
+export interface SearchHit {
+  messageId: number;
+  sessionId: number;
+  role: ChatRole;
+  /** Textausschnitt mit markierten Fundstellen. */
+  snippet: string;
+  createdAt: string;
+}
+
+/** Body für `POST /sessions`. */
+export interface CreateSessionRequest {
+  title?: string;
+  channel?: SessionChannel;
+}
+
+/** Body für `POST /sessions/:id/messages`. */
+export interface PostMessageRequest {
+  content: string;
+  model?: string;
+  maxTokens?: number;
+}
+
+/** Antwort auf `GET /sessions`. */
+export interface SessionListResponse {
+  sessions: Session[];
+}
+
+/** Antwort auf `GET /sessions/:id/messages`. */
+export interface SessionMessagesResponse {
+  session: Session;
+  messages: StoredMessage[];
+}
+
+/** Antwort auf `GET /search`. */
+export interface SearchResponse {
+  query: string;
+  hits: SearchHit[];
+}

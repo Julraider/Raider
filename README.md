@@ -26,6 +26,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run dev` | Core im Watch-Modus starten |
 | `npm run ask -- "Frage"` | Eine Frage an den Core stellen (Core muss laufen) |
 | `npm run chat` | Interaktiver Dialog gegen den Core (Core muss laufen) |
+| `npm run search -- "Begriff"` | Volltextsuche über gespeicherte Nachrichten |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -46,10 +47,15 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 ## API
 
 ```
-GET  /status  →  { status, version, database: { connected, migrations } }
-POST /chat    →  { role, content, model, stopReason, usage }
-     Body:       { messages: [{ role, content }], model?, maxTokens?, system? }
+GET  /status                     Version + Datenbankstatus
+POST /chat                       Zustandsloser Einmal-Aufruf (messages im Body)
+POST /sessions                   Neue Sitzung anlegen
+GET  /sessions                   Sitzungen auflisten
+POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
+GET  /sessions/:id/messages      Verlauf einer Sitzung
+GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)
 ```
 
 Der Anbieter (aktuell Anthropic) sitzt hinter einem Adapter, der immer das
-interne Nachrichtenformat zurückgibt — nie das rohe Anbieterformat.
+interne Nachrichtenformat zurückgibt — nie das rohe Anbieterformat. Gespräche
+liegen in SQLite; `messages.content` ist per FTS5 durchsuchbar (Memory-Ebene 2).
