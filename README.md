@@ -25,6 +25,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 |---|---|
 | `npm run dev` | Core im Watch-Modus starten |
 | `npm run ask -- "Frage"` | Eine Frage an den Core stellen (Core muss laufen) |
+| `npm run chat` | Interaktiver Dialog gegen den Core (Core muss laufen) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |

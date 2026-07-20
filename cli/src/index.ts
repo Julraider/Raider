@@ -1,16 +1,11 @@
-import type { ChatRequest, ChatResponse } from "@raider/shared";
+import { ChatRequestError, postChat, resolveBaseUrl } from "./client";
 
 /**
- * Minimaler CLI-Client für Schritt 2: stellt genau eine Frage an den Core und
- * druckt die Antwort. Redet ausschließlich über die lokale API — nie direkt
- * mit Datenbank oder Anbieter.
+ * Einmalige Frage an den Core (Schritt 2). Redet ausschließlich über die
+ * lokale API. Für einen fortlaufenden Dialog: npm run chat.
  *
- * Nutzung:  npm run ask -- "deine Frage"
- * Der Core muss laufen (npm run dev).
+ * Nutzung:  npm run ask -- "deine Frage"   (Core muss laufen: npm run dev)
  */
-
-const port = process.env.RAIDER_PORT ? Number(process.env.RAIDER_PORT) : 4179;
-const baseUrl = `http://localhost:${port}`;
 
 async function main(): Promise<void> {
   // Führendes "ask" tolerieren, damit `raider ask ...` und die reine Frage beide gehen.
@@ -23,29 +18,24 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const request: ChatRequest = { messages: [{ role: "user", content: prompt }] };
+  const baseUrl = resolveBaseUrl();
 
-  let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
+    const response = await postChat(baseUrl, {
+      messages: [{ role: "user", content: prompt }],
     });
-  } catch {
-    console.error(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?`);
+    console.log(response.content);
+    console.error(
+      `\n[${response.model} · ${response.usage.inputTokens}→${response.usage.outputTokens} Tokens]`,
+    );
+  } catch (error) {
+    if (error instanceof ChatRequestError) {
+      console.error(`Fehler (${error.status}): ${error.message}`);
+    } else {
+      console.error(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?`);
+    }
     process.exit(1);
   }
-
-  const data = (await response.json()) as ChatResponse & { error?: string };
-
-  if (!response.ok) {
-    console.error(`Fehler (${response.status}): ${data.error ?? "unbekannt"}`);
-    process.exit(1);
-  }
-
-  console.log(data.content);
-  console.error(`\n[${data.model} · ${data.usage.inputTokens}→${data.usage.outputTokens} Tokens]`);
 }
 
 void main();
