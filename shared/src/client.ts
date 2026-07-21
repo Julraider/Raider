@@ -6,10 +6,14 @@ import type {
   ChatResponse,
   CreateAgentRequest,
   CreateMcpServerRequest,
+  CreateMemoryRequest,
   CreateSessionRequest,
   McpServer,
   McpServerListResponse,
   McpTestResponse,
+  MemoryEntry,
+  MemoryStore,
+  MemoryView,
   PostMessageRequest,
   SearchResponse,
   Session,
@@ -19,6 +23,7 @@ import type {
   ToolCallListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
+  UpdateMemoryRequest,
 } from "./index";
 
 /**
@@ -73,6 +78,10 @@ export interface RaiderClient {
   testMcpServer(id: number): Promise<McpTestResponse>;
   callTool(serverId: number, tool: string, input: CallToolRequest): Promise<ToolCall>;
   listToolCalls(): Promise<ToolCallListResponse>;
+  getMemory(store: MemoryStore): Promise<MemoryView>;
+  addMemory(store: MemoryStore, input: CreateMemoryRequest): Promise<MemoryEntry>;
+  updateMemory(id: number, input: UpdateMemoryRequest): Promise<MemoryEntry>;
+  deleteMemory(id: number): Promise<{ deleted: boolean }>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -113,5 +122,12 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
         jsonInit("POST", input),
       ),
     listToolCalls: () => requestJson<ToolCallListResponse>(`${base}/tool-calls`),
+    getMemory: (store) => requestJson<MemoryView>(`${base}/memory/${store}`),
+    addMemory: (store, input) =>
+      requestJson<MemoryEntry>(`${base}/memory/${store}`, jsonInit("POST", input)),
+    updateMemory: (id, input) =>
+      requestJson<MemoryEntry>(`${base}/memory/entries/${id}`, jsonInit("PATCH", input)),
+    deleteMemory: (id) =>
+      requestJson<{ deleted: boolean }>(`${base}/memory/entries/${id}`, jsonInit("DELETE", {})),
   };
 }

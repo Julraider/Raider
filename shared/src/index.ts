@@ -267,3 +267,38 @@ export interface CallToolRequest {
 export interface ToolCallListResponse {
   toolCalls: ToolCall[];
 }
+
+/**
+ * Memory Ebene 1 — Kerngedächtnis (immer im Kontext). Zwei Speicher:
+ * Nutzerprofil und Agenten-Notizen. Jeder Speicher hat ein Zeichenlimit.
+ */
+
+export type MemoryStore = "agent" | "user";
+
+/** Ein einzelner Gedächtniseintrag, mit Herkunft. */
+export interface MemoryEntry {
+  id: number;
+  store: MemoryStore;
+  content: string;
+  /** Aus welcher Sitzung der Eintrag stammt (null bei manueller Eingabe). */
+  sourceSessionId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Sicht auf einen Speicher inkl. Auslastung. */
+export interface MemoryView {
+  store: MemoryStore;
+  used: number;
+  limit: number;
+  entries: MemoryEntry[];
+}
+
+export interface CreateMemoryRequest {
+  content: string;
+  sourceSessionId?: number | null;
+}
+
+export interface UpdateMemoryRequest {
+  content: string;
+}

@@ -6,9 +6,11 @@ import type {
   ChatResponse,
   CreateAgentRequest,
   CreateMcpServerRequest,
+  CreateMemoryRequest,
   CreateSessionRequest,
   McpServerListResponse,
   McpTestResponse,
+  MemoryView,
   PostMessageRequest,
   SearchResponse,
   SessionListResponse,
@@ -17,9 +19,11 @@ import type {
   ToolCallListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
+  UpdateMemoryRequest,
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import type { MemoryLimits } from "../config";
 import {
   createAgent,
   deleteAgent,
@@ -39,6 +43,15 @@ import {
   recordToolCall,
   updateMcpServer,
 } from "../db/mcp";
+import {
+  addMemoryEntry,
+  deleteMemoryEntry,
+  getEntry,
+  listMemory,
+  MemoryError,
+  updateMemoryEntry,
+  usedChars,
+} from "../db/memory";
 import { getMigrationStatus } from "../db/migrate";
 import {
   addMessage,
@@ -60,8 +73,10 @@ export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
  * eine In-Memory-Datenbank und eine austauschbare Chat-Funktion, ohne einen
  * echten Port oder Anbieter zu brauchen.
  */
-export function createApp(db: Db, chat: ChatFn, mcp: McpRunner): Hono {
+export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: MemoryLimits): Hono {
   const app = new Hono();
+  const limitFor = (store: "agent" | "user") =>
+    store === "agent" ? memoryLimits.agent : memoryLimits.user;
 
   // Lokale Clients (auch der Electron-Renderer im Browser) dürfen zugreifen.
   // Der Core lauscht ohnehin nur auf localhost.
@@ -135,9 +150,13 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner): Hono {
       content: message.content,
     }));
 
-    // Agent der Sitzung prägt Systemprompt und Modell (falls gesetzt).
+    // Agent der Sitzung prägt Systemprompt und Modell; das Kerngedächtnis
+    // (Ebene 1) kommt bei jeder Nachricht mit in den Kontext.
     const agent = session.agentId !== null ? getAgent(db, session.agentId) : undefined;
-    const system = agent && agent.systemPrompt.trim() !== "" ? agent.systemPrompt : undefined;
+    const agentPrompt = agent && agent.systemPrompt.trim() !== "" ? agent.systemPrompt : undefined;
+    const memory = buildMemoryContext(db);
+    const systemParts = [agentPrompt, memory].filter((part): part is string => Boolean(part));
+    const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
     const model = body?.model ?? agent?.model ?? undefined;
 
     try {
@@ -319,12 +338,94 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner): Hono {
     return c.json(body);
   });
 
+  // --- Memory (Kerngedächtnis, Ebene 1) ---
+
+  app.get("/memory/:store", (c) => {
+    const store = parseStore(c.req.param("store"));
+    if (!store) return c.json({ error: "Ungültiger Speicher (agent|user)." }, 400);
+    const body: MemoryView = {
+      store,
+      used: usedChars(db, store),
+      limit: limitFor(store),
+      entries: listMemory(db, store),
+    };
+    return c.json(body);
+  });
+
+  app.post("/memory/:store", async (c) => {
+    const store = parseStore(c.req.param("store"));
+    if (!store) return c.json({ error: "Ungültiger Speicher (agent|user)." }, 400);
+    const body = await readJson<CreateMemoryRequest>(c);
+    if (!body?.content?.trim())
+      return c.json({ error: "Feld 'content' darf nicht leer sein." }, 400);
+    try {
+      const entry = addMemoryEntry(
+        db,
+        { store, content: body.content, sourceSessionId: body.sourceSessionId ?? null },
+        limitFor(store),
+      );
+      return c.json(entry, 201);
+    } catch (error) {
+      return memoryErrorResponse(c, error);
+    }
+  });
+
+  app.patch("/memory/entries/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Eintrags-ID." }, 400);
+    const existing = getEntry(db, id);
+    if (!existing) return c.json({ error: "Eintrag nicht gefunden." }, 404);
+    const body = await readJson<UpdateMemoryRequest>(c);
+    if (!body?.content?.trim())
+      return c.json({ error: "Feld 'content' darf nicht leer sein." }, 400);
+    try {
+      const entry = updateMemoryEntry(db, id, body.content, limitFor(existing.store));
+      return c.json(entry);
+    } catch (error) {
+      return memoryErrorResponse(c, error);
+    }
+  });
+
+  app.delete("/memory/entries/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Eintrags-ID." }, 400);
+    if (!deleteMemoryEntry(db, id)) return c.json({ error: "Eintrag nicht gefunden." }, 404);
+    return c.json({ deleted: true });
+  });
+
   return app;
+}
+
+/** Baut den Kontextblock aus dem Kerngedächtnis (oder undefined, wenn leer). */
+function buildMemoryContext(db: Db): string | undefined {
+  const user = listMemory(db, "user");
+  const agentNotes = listMemory(db, "agent");
+  const parts: string[] = [];
+  if (user.length > 0) {
+    parts.push(`## Nutzerprofil\n${user.map((entry) => `- ${entry.content}`).join("\n")}`);
+  }
+  if (agentNotes.length > 0) {
+    parts.push(`## Notizen\n${agentNotes.map((entry) => `- ${entry.content}`).join("\n")}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 /** Fehlermeldung aus einem unbekannten Fehler ziehen. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Prüft und normalisiert den Speicher-Namen. */
+function parseStore(raw: string): "agent" | "user" | null {
+  return raw === "agent" || raw === "user" ? raw : null;
+}
+
+/** Bildet MemoryError auf den passenden HTTP-Status ab. */
+function memoryErrorResponse(c: Context, error: unknown): Response {
+  if (error instanceof MemoryError) {
+    return c.json({ error: error.message }, error.status as 400 | 409 | 413 | 500);
+  }
+  return c.json({ error: "Interner Fehler im Kerngedächtnis." }, 500);
 }
 
 /** Liest JSON aus dem Request, oder null bei ungültigem Body. */

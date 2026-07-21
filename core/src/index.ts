@@ -23,7 +23,7 @@ const migrations = runMigrations(db, migrationsDir);
 const provider = createProvider(config, getAnthropicApiKey());
 const chat: ChatFn = (request) => provider.complete(request);
 
-const app = createApp(db, chat, createMcpRunner());
+const app = createApp(db, chat, createMcpRunner(), config.memory);
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Raider Core v${version} läuft auf http://localhost:${info.port}`);

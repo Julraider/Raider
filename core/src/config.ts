@@ -19,6 +19,12 @@ export interface OllamaSettings {
   defaultMaxTokens: number;
 }
 
+/** Zeichenlimits des Kerngedächtnisses pro Speicher. */
+export interface MemoryLimits {
+  agent: number;
+  user: number;
+}
+
 /** Laufzeit-Konfiguration des Cores, aus Umgebungsvariablen abgeleitet. */
 export interface CoreConfig {
   /** Sichtbarer Datenordner, Standard ~/Raider (siehe Spec). */
@@ -31,9 +37,12 @@ export interface CoreConfig {
   provider: ProviderName;
   anthropic: AnthropicSettings;
   ollama: OllamaSettings;
+  memory: MemoryLimits;
 }
 
 const DEFAULT_PORT = 4179;
+const DEFAULT_MEMORY_AGENT_LIMIT = 2200;
+const DEFAULT_MEMORY_USER_LIMIT = 1375;
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
@@ -60,6 +69,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
       baseUrl: env.RAIDER_OLLAMA_URL ?? DEFAULT_OLLAMA_BASE_URL,
       defaultModel: env.RAIDER_OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
       defaultMaxTokens: maxTokens,
+    },
+    memory: {
+      agent: env.RAIDER_MEMORY_AGENT_LIMIT
+        ? Number(env.RAIDER_MEMORY_AGENT_LIMIT)
+        : DEFAULT_MEMORY_AGENT_LIMIT,
+      user: env.RAIDER_MEMORY_USER_LIMIT
+        ? Number(env.RAIDER_MEMORY_USER_LIMIT)
+        : DEFAULT_MEMORY_USER_LIMIT,
     },
   };
 }

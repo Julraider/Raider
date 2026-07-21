@@ -22,6 +22,7 @@
     "search": "tsx cli/src/search.ts",
     "agents": "tsx cli/src/agents.ts",
     "mcp": "tsx cli/src/mcp.ts",
+    "memory": "tsx cli/src/memory.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p desktop/tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write ."
