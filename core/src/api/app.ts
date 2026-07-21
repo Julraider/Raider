@@ -7,10 +7,13 @@ import type {
   CreateAgentRequest,
   CreateMcpServerRequest,
   CreateMemoryRequest,
+  CreatePendingWriteRequest,
   CreateSessionRequest,
   McpServerListResponse,
   McpTestResponse,
   MemoryView,
+  PendingWriteListResponse,
+  PendingWriteStatus,
   PostMessageRequest,
   SearchResponse,
   SessionListResponse,
@@ -53,6 +56,12 @@ import {
   usedChars,
 } from "../db/memory";
 import { getMigrationStatus } from "../db/migrate";
+import {
+  createPendingWrite,
+  getPendingWrite,
+  listPendingWrites,
+  resolvePendingWrite,
+} from "../db/pending";
 import {
   addMessage,
   createSession,
@@ -391,6 +400,64 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: Me
     if (id === null) return c.json({ error: "Ungültige Eintrags-ID." }, 400);
     if (!deleteMemoryEntry(db, id)) return c.json({ error: "Eintrag nicht gefunden." }, 404);
     return c.json({ deleted: true });
+  });
+
+  // --- Freigabe-Posteingang ---
+
+  app.post("/inbox", async (c) => {
+    const body = await readJson<CreatePendingWriteRequest>(c);
+    if (!body || (body.kind !== "memory" && body.kind !== "skill") || !body.proposal) {
+      return c.json({ error: "Felder 'kind' (memory|skill) und 'proposal' sind nötig." }, 400);
+    }
+    return c.json(createPendingWrite(db, body), 201);
+  });
+
+  app.get("/inbox", (c) => {
+    const raw = c.req.query("status");
+    const filter: PendingWriteStatus | undefined =
+      raw === "approved" || raw === "rejected" || raw === "pending"
+        ? raw
+        : raw === "all"
+          ? undefined
+          : "pending";
+    const body: PendingWriteListResponse = { pendingWrites: listPendingWrites(db, filter) };
+    return c.json(body);
+  });
+
+  app.post("/inbox/:id/approve", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige ID." }, 400);
+    const write = getPendingWrite(db, id);
+    if (!write) return c.json({ error: "Vorschlag nicht gefunden." }, 404);
+    if (write.status !== "pending") return c.json({ error: "Bereits bearbeitet." }, 409);
+
+    if (write.kind === "memory") {
+      const { store, content } = write.proposal;
+      try {
+        // Anwenden geht durch die Memory-Prüfung (Limit, Duplikat, Injection).
+        const applied = addMemoryEntry(
+          db,
+          { store, content, sourceSessionId: write.sourceSessionId },
+          limitFor(store),
+        );
+        const pendingWrite = resolvePendingWrite(db, id, "approved");
+        return c.json({ pendingWrite, applied });
+      } catch (error) {
+        // Bei Ablehnung bleibt der Vorschlag offen — zum Nachbessern.
+        return memoryErrorResponse(c, error);
+      }
+    }
+
+    return c.json({ error: "Skill-Vorschläge werden ab Schritt 10 unterstützt." }, 501);
+  });
+
+  app.post("/inbox/:id/reject", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige ID." }, 400);
+    const write = getPendingWrite(db, id);
+    if (!write) return c.json({ error: "Vorschlag nicht gefunden." }, 404);
+    if (write.status !== "pending") return c.json({ error: "Bereits bearbeitet." }, 409);
+    return c.json(resolvePendingWrite(db, id, "rejected"));
   });
 
   return app;

@@ -30,6 +30,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run agents` | Agenten auflisten (oder `-- new "Name" "Prompt"`) |
 | `npm run mcp` | MCP-Server verwalten/testen (`-- add`, `-- test <id>`, `-- call <id> <tool>`) |
 | `npm run memory` | Kerngedächtnis ansehen/bearbeiten (`-- add`, `-- edit`, `-- del`) |
+| `npm run inbox` | Freigabe-Posteingang (`-- propose`, `-- approve <id>`, `-- reject <id>`) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -73,6 +74,8 @@ POST /mcp/servers/:id/tools/:tool/call      Werkzeugaufruf — nur mit Freigabe
 GET  /tool-calls                            Protokoll aller Werkzeugaufrufe
 GET/POST /memory/:store                     Kerngedächtnis lesen/ergänzen (agent|user)
 PATCH/DELETE /memory/entries/:id            Eintrag ändern/löschen
+POST/GET /inbox                             Freigabe-Posteingang (Vorschläge)
+POST /inbox/:id/approve | /reject           Vorschlag freigeben (anwenden) | ablehnen
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)

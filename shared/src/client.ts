@@ -7,6 +7,7 @@ import type {
   CreateAgentRequest,
   CreateMcpServerRequest,
   CreateMemoryRequest,
+  CreatePendingWriteRequest,
   CreateSessionRequest,
   McpServer,
   McpServerListResponse,
@@ -14,6 +15,9 @@ import type {
   MemoryEntry,
   MemoryStore,
   MemoryView,
+  PendingWrite,
+  PendingWriteListResponse,
+  PendingWriteStatus,
   PostMessageRequest,
   SearchResponse,
   Session,
@@ -82,6 +86,10 @@ export interface RaiderClient {
   addMemory(store: MemoryStore, input: CreateMemoryRequest): Promise<MemoryEntry>;
   updateMemory(id: number, input: UpdateMemoryRequest): Promise<MemoryEntry>;
   deleteMemory(id: number): Promise<{ deleted: boolean }>;
+  createPendingWrite(input: CreatePendingWriteRequest): Promise<PendingWrite>;
+  listInbox(status?: PendingWriteStatus): Promise<PendingWriteListResponse>;
+  approvePendingWrite(id: number): Promise<{ pendingWrite: PendingWrite; applied?: unknown }>;
+  rejectPendingWrite(id: number): Promise<PendingWrite>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -129,5 +137,16 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<MemoryEntry>(`${base}/memory/entries/${id}`, jsonInit("PATCH", input)),
     deleteMemory: (id) =>
       requestJson<{ deleted: boolean }>(`${base}/memory/entries/${id}`, jsonInit("DELETE", {})),
+    createPendingWrite: (input) =>
+      requestJson<PendingWrite>(`${base}/inbox`, jsonInit("POST", input)),
+    listInbox: (status) =>
+      requestJson<PendingWriteListResponse>(`${base}/inbox${status ? `?status=${status}` : ""}`),
+    approvePendingWrite: (id) =>
+      requestJson<{ pendingWrite: PendingWrite; applied?: unknown }>(
+        `${base}/inbox/${id}/approve`,
+        jsonInit("POST", {}),
+      ),
+    rejectPendingWrite: (id) =>
+      requestJson<PendingWrite>(`${base}/inbox/${id}/reject`, jsonInit("POST", {})),
   };
 }

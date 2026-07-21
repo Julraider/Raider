@@ -302,3 +302,43 @@ export interface CreateMemoryRequest {
 export interface UpdateMemoryRequest {
   content: string;
 }
+
+/**
+ * Freigabe-Posteingang: automatisch oder im Chat vorgeschlagene Schreibzugriffe
+ * landen hier und werden erst nach Freigabe angewendet (nie direkt).
+ */
+
+export type PendingWriteKind = "memory" | "skill";
+export type PendingWriteOrigin = "auto" | "chat";
+export type PendingWriteStatus = "pending" | "approved" | "rejected";
+
+/** Vorschlag für einen Memory-Eintrag. */
+export interface MemoryProposal {
+  store: MemoryStore;
+  content: string;
+}
+
+/** Inhalt eines Vorschlags (in Schritt 10 um SkillProposal erweitert). */
+export type PendingProposal = MemoryProposal;
+
+export interface PendingWrite {
+  id: number;
+  kind: PendingWriteKind;
+  proposal: PendingProposal;
+  origin: PendingWriteOrigin;
+  status: PendingWriteStatus;
+  sourceSessionId: number | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface CreatePendingWriteRequest {
+  kind: PendingWriteKind;
+  proposal: PendingProposal;
+  origin?: PendingWriteOrigin;
+  sourceSessionId?: number | null;
+}
+
+export interface PendingWriteListResponse {
+  pendingWrites: PendingWrite[];
+}

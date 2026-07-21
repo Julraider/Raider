@@ -6,6 +6,7 @@ import type {
   McpServer,
   MemoryEntry,
   MemoryView,
+  PendingWrite,
   SearchResponse,
   Session,
   SessionMessagesResponse,
@@ -61,8 +62,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(4);
-    expect(body.database.migrations.latest).toBe("004_memory.sql");
+    expect(body.database.migrations.applied).toBe(5);
+    expect(body.database.migrations.latest).toBe("005_pending.sql");
   });
 });
 
@@ -278,5 +279,63 @@ describe("Memory (Kerngedächtnis)", () => {
     const request = captured as unknown as ChatRequest;
     expect(request.system).toContain("Nutzerprofil");
     expect(request.system).toContain("Coolian");
+  });
+});
+
+describe("Freigabe-Posteingang", () => {
+  const proposal = json({ kind: "memory", proposal: { store: "user", content: "Trinkt Tee." } });
+
+  it("stellt einen Vorschlag ein und listet offene", async () => {
+    const app = setupApp();
+    const created = await app.request("/inbox", proposal);
+    expect(created.status).toBe(201);
+
+    const list = (await (await app.request("/inbox")).json()) as { pendingWrites: PendingWrite[] };
+    expect(list.pendingWrites).toHaveLength(1);
+    expect(list.pendingWrites[0]?.status).toBe("pending");
+  });
+
+  it("wendet einen Vorschlag bei Freigabe auf das Memory an", async () => {
+    const app = setupApp();
+    const write = (await (await app.request("/inbox", proposal)).json()) as PendingWrite;
+
+    const approved = await app.request(`/inbox/${write.id}/approve`, json({}));
+    expect(approved.status).toBe(200);
+
+    const view = (await (await app.request("/memory/user")).json()) as MemoryView;
+    expect(view.entries.map((e) => e.content)).toContain("Trinkt Tee.");
+
+    // Zweite Freigabe → schon bearbeitet.
+    const again = await app.request(`/inbox/${write.id}/approve`, json({}));
+    expect(again.status).toBe(409);
+  });
+
+  it("lehnt einen Vorschlag ab, ohne ihn anzuwenden", async () => {
+    const app = setupApp();
+    const write = (await (await app.request("/inbox", proposal)).json()) as PendingWrite;
+
+    const rejected = (await (
+      await app.request(`/inbox/${write.id}/reject`, json({}))
+    ).json()) as PendingWrite;
+    expect(rejected.status).toBe("rejected");
+
+    const view = (await (await app.request("/memory/user")).json()) as MemoryView;
+    expect(view.entries).toHaveLength(0);
+  });
+
+  it("lässt einen Vorschlag offen, wenn das Anwenden scheitert (Überlauf)", async () => {
+    const app = setupApp(stubChat, stubMcp, { agent: 2200, user: 5 });
+    const write = (await (
+      await app.request(
+        "/inbox",
+        json({ kind: "memory", proposal: { store: "user", content: "viel zu lang" } }),
+      )
+    ).json()) as PendingWrite;
+
+    const approved = await app.request(`/inbox/${write.id}/approve`, json({}));
+    expect(approved.status).toBe(413);
+
+    const list = (await (await app.request("/inbox")).json()) as { pendingWrites: PendingWrite[] };
+    expect(list.pendingWrites).toHaveLength(1); // bleibt offen
   });
 });
