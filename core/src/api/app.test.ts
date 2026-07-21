@@ -71,8 +71,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(7);
-    expect(body.database.migrations.latest).toBe("007_telegram.sql");
+    expect(body.database.migrations.applied).toBe(8);
+    expect(body.database.migrations.latest).toBe("008_scheduler.sql");
   });
 });
 
@@ -459,5 +459,80 @@ describe("Telegram-Verwaltung", () => {
     const app = setupApp();
     const res = await app.request("/telegram/chats/999", { method: "DELETE" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("Scheduler", () => {
+  it("legt eine Aufgabe an, listet sie und führt sie sofort aus", async () => {
+    const app = setupApp();
+    const created = await app.request(
+      "/scheduler/tasks",
+      json({
+        name: "Morgen-Zusammenfassung",
+        scheduleKind: "daily",
+        scheduleValue: "07:00",
+        prompt: "Fasse den Tag zusammen.",
+      }),
+    );
+    expect(created.status).toBe(201);
+
+    const list = (await (await app.request("/scheduler/tasks")).json()) as {
+      tasks: { id: number; name: string }[];
+    };
+    expect(list.tasks).toHaveLength(1);
+    const id = list.tasks[0]?.id;
+
+    const run = await app.request(`/scheduler/tasks/${id}/run`, json({}));
+    expect(run.status).toBe(200);
+    const body = (await run.json()) as { sessionId: number; ran: boolean };
+    expect(body.ran).toBe(true);
+    expect(body.sessionId).toBeGreaterThan(0);
+  });
+
+  it("weist einen ungültigen Zeitplan ab", async () => {
+    const app = setupApp();
+    const res = await app.request(
+      "/scheduler/tasks",
+      json({ name: "X", scheduleKind: "daily", scheduleValue: "99:99", prompt: "hi" }),
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("Not-Stopp", () => {
+  it("sperrt Werkzeugaufrufe und 'jetzt ausführen', bis er gelöst wird", async () => {
+    const app = setupApp();
+
+    // Ein MCP-Server und eine Aufgabe zum Testen.
+    const server = (await (
+      await app.request("/mcp/servers", json({ name: "echo", type: "stdio", command: "node" }))
+    ).json()) as { id: number };
+    const task = (await (
+      await app.request(
+        "/scheduler/tasks",
+        json({ name: "T", scheduleKind: "interval", scheduleValue: "60", prompt: "hi" }),
+      )
+    ).json()) as { id: number };
+
+    // Not-Stopp aktivieren.
+    const engaged = await app.request("/emergency-stop", json({ reason: "Test" }));
+    expect(((await engaged.json()) as { engaged: boolean }).engaged).toBe(true);
+
+    const call = await app.request(
+      `/mcp/servers/${server.id}/tools/echo/call`,
+      json({ arguments: {}, approvedBy: "test" }),
+    );
+    expect(call.status).toBe(423);
+
+    const run = await app.request(`/scheduler/tasks/${task.id}/run`, json({}));
+    expect(run.status).toBe(423);
+
+    // Lösen — danach ist 'jetzt ausführen' wieder erlaubt.
+    await app.request("/emergency-stop", { method: "DELETE" });
+    const state = (await (await app.request("/emergency-stop")).json()) as { engaged: boolean };
+    expect(state.engaged).toBe(false);
+
+    const runAgain = await app.request(`/scheduler/tasks/${task.id}/run`, json({}));
+    expect(runAgain.status).toBe(200);
   });
 });

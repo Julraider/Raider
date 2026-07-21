@@ -6,8 +6,10 @@ import type {
   CreateMcpServerRequest,
   CreateMemoryRequest,
   CreatePendingWriteRequest,
+  CreateScheduledTaskRequest,
   CreateSessionRequest,
   CreateSkillRequest,
+  EmergencyStopState,
   ImportSkillRequest,
   McpServerListResponse,
   McpTestResponse,
@@ -16,6 +18,8 @@ import type {
   PendingWriteListResponse,
   PendingWriteStatus,
   PostMessageRequest,
+  RunTaskResponse,
+  ScheduledTaskListResponse,
   SearchResponse,
   SessionListResponse,
   SessionMessagesResponse,
@@ -29,6 +33,7 @@ import type {
   UpdateAgentRequest,
   UpdateMcpServerRequest,
   UpdateMemoryRequest,
+  UpdateScheduledTaskRequest,
   UpdateSkillRequest,
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
@@ -56,6 +61,7 @@ import {
   listAgents,
   updateAgent,
 } from "../db/agents";
+import { engageStop, getStop, isStopped, releaseStop } from "../db/emergency";
 import type { Db } from "../db/index";
 import {
   createMcpServer,
@@ -91,6 +97,14 @@ import {
   searchMessages,
 } from "../db/repository";
 import {
+  createScheduledTask,
+  deleteScheduledTask,
+  getScheduledTask,
+  listScheduledTasks,
+  ScheduleError,
+  updateScheduledTask,
+} from "../db/scheduler";
+import {
   assignSkill,
   createSkill,
   deleteSkill,
@@ -106,6 +120,7 @@ import {
 import { chatCount, createPairingCode, listChats, unpairChat } from "../db/telegram";
 import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
+import { runScheduledTask } from "../scheduler/runner";
 import { version } from "../version";
 
 export type { ChatFn } from "../chat/turn";
@@ -323,6 +338,7 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
 
   // Werkzeugaufruf — nur mit Freigabe (approvedBy).
   app.post("/mcp/servers/:id/tools/:tool/call", async (c) => {
+    if (isStopped(db)) return c.json({ error: "Not-Stopp aktiv — keine Werkzeugaufrufe." }, 423);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
     const config = getMcpServerConfig(db, id);
@@ -590,6 +606,101 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     if (!Number.isInteger(chatId)) return c.json({ error: "Ungültige Chat-ID." }, 400);
     if (!unpairChat(db, chatId)) return c.json({ error: "Chat nicht gekoppelt." }, 404);
     return c.json({ unpaired: true });
+  });
+
+  // --- Scheduler (geplante Aufgaben) ---
+
+  app.post("/scheduler/tasks", async (c) => {
+    const body = await readJson<CreateScheduledTaskRequest>(c);
+    const name = body?.name?.trim();
+    const prompt = body?.prompt?.trim();
+    if (!name || !prompt || !body?.scheduleKind || !body?.scheduleValue) {
+      return c.json(
+        { error: "Felder 'name', 'prompt', 'scheduleKind' und 'scheduleValue' sind nötig." },
+        400,
+      );
+    }
+    try {
+      const task = createScheduledTask(db, {
+        name,
+        scheduleKind: body.scheduleKind,
+        scheduleValue: body.scheduleValue,
+        prompt,
+        agentId: body.agentId ?? null,
+      });
+      return c.json(task, 201);
+    } catch (error) {
+      if (error instanceof ScheduleError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
+  });
+
+  app.get("/scheduler/tasks", (c) => {
+    const body: ScheduledTaskListResponse = { tasks: listScheduledTasks(db) };
+    return c.json(body);
+  });
+
+  app.get("/scheduler/tasks/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Aufgaben-ID." }, 400);
+    const task = getScheduledTask(db, id);
+    if (!task) return c.json({ error: "Aufgabe nicht gefunden." }, 404);
+    return c.json(task);
+  });
+
+  app.patch("/scheduler/tasks/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Aufgaben-ID." }, 400);
+    const body = (await readJson<UpdateScheduledTaskRequest>(c)) ?? {};
+    try {
+      const task = updateScheduledTask(db, id, body);
+      if (!task) return c.json({ error: "Aufgabe nicht gefunden." }, 404);
+      return c.json(task);
+    } catch (error) {
+      if (error instanceof ScheduleError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
+  });
+
+  app.delete("/scheduler/tasks/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Aufgaben-ID." }, 400);
+    if (!deleteScheduledTask(db, id)) return c.json({ error: "Aufgabe nicht gefunden." }, 404);
+    return c.json({ deleted: true });
+  });
+
+  // Sofort ausführen (auch wenn nicht fällig) — bei Not-Stopp gesperrt.
+  app.post("/scheduler/tasks/:id/run", async (c) => {
+    if (isStopped(db)) return c.json({ error: "Not-Stopp aktiv — keine Ausführung." }, 423);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Aufgaben-ID." }, 400);
+    const task = getScheduledTask(db, id);
+    if (!task) return c.json({ error: "Aufgabe nicht gefunden." }, 404);
+    try {
+      const sessionId = await runScheduledTask(db, chat, task);
+      const body: RunTaskResponse = { sessionId, ran: true };
+      return c.json(body);
+    } catch (error) {
+      return chatErrorResponse(c, error);
+    }
+  });
+
+  // --- Not-Stopp (der große rote Schalter) ---
+
+  app.get("/emergency-stop", (c) => {
+    const body: EmergencyStopState = getStop(db);
+    return c.json(body);
+  });
+
+  app.post("/emergency-stop", async (c) => {
+    const body = await readJson<{ reason?: string }>(c);
+    const state: EmergencyStopState = engageStop(db, body?.reason?.trim() || null);
+    return c.json(state);
+  });
+
+  app.delete("/emergency-stop", (c) => {
+    const state: EmergencyStopState = releaseStop(db);
+    return c.json(state);
   });
 
   return app;

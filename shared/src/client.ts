@@ -8,8 +8,10 @@ import type {
   CreateMcpServerRequest,
   CreateMemoryRequest,
   CreatePendingWriteRequest,
+  CreateScheduledTaskRequest,
   CreateSessionRequest,
   CreateSkillRequest,
+  EmergencyStopState,
   ImportSkillRequest,
   McpServer,
   McpServerListResponse,
@@ -21,6 +23,9 @@ import type {
   PendingWriteListResponse,
   PendingWriteStatus,
   PostMessageRequest,
+  RunTaskResponse,
+  ScheduledTask,
+  ScheduledTaskListResponse,
   SearchResponse,
   Session,
   SessionListResponse,
@@ -37,6 +42,7 @@ import type {
   UpdateAgentRequest,
   UpdateMcpServerRequest,
   UpdateMemoryRequest,
+  UpdateScheduledTaskRequest,
   UpdateSkillRequest,
 } from "./index";
 
@@ -114,6 +120,15 @@ export interface RaiderClient {
   createPairingCode(): Promise<TelegramPairingCode>;
   listTelegramChats(): Promise<TelegramChatListResponse>;
   unpairTelegramChat(chatId: number): Promise<{ unpaired: boolean }>;
+  createScheduledTask(input: CreateScheduledTaskRequest): Promise<ScheduledTask>;
+  listScheduledTasks(): Promise<ScheduledTaskListResponse>;
+  getScheduledTask(id: number): Promise<ScheduledTask>;
+  updateScheduledTask(id: number, patch: UpdateScheduledTaskRequest): Promise<ScheduledTask>;
+  deleteScheduledTask(id: number): Promise<{ deleted: boolean }>;
+  runScheduledTask(id: number): Promise<RunTaskResponse>;
+  getEmergencyStop(): Promise<EmergencyStopState>;
+  engageEmergencyStop(reason?: string): Promise<EmergencyStopState>;
+  releaseEmergencyStop(): Promise<EmergencyStopState>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -202,5 +217,20 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
         `${base}/telegram/chats/${chatId}`,
         jsonInit("DELETE", {}),
       ),
+    createScheduledTask: (input) =>
+      requestJson<ScheduledTask>(`${base}/scheduler/tasks`, jsonInit("POST", input)),
+    listScheduledTasks: () => requestJson<ScheduledTaskListResponse>(`${base}/scheduler/tasks`),
+    getScheduledTask: (id) => requestJson<ScheduledTask>(`${base}/scheduler/tasks/${id}`),
+    updateScheduledTask: (id, patch) =>
+      requestJson<ScheduledTask>(`${base}/scheduler/tasks/${id}`, jsonInit("PATCH", patch)),
+    deleteScheduledTask: (id) =>
+      requestJson<{ deleted: boolean }>(`${base}/scheduler/tasks/${id}`, jsonInit("DELETE", {})),
+    runScheduledTask: (id) =>
+      requestJson<RunTaskResponse>(`${base}/scheduler/tasks/${id}/run`, jsonInit("POST", {})),
+    getEmergencyStop: () => requestJson<EmergencyStopState>(`${base}/emergency-stop`),
+    engageEmergencyStop: (reason) =>
+      requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("POST", { reason })),
+    releaseEmergencyStop: () =>
+      requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("DELETE", {})),
   };
 }

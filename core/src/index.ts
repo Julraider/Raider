@@ -9,6 +9,7 @@ import { openDatabase } from "./db/index";
 import { runMigrations } from "./db/migrate";
 import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
+import { createScheduler } from "./scheduler/runner";
 import { createTelegramApi } from "./telegram/api";
 import { createTelegramGateway } from "./telegram/gateway";
 import { version } from "./version";
@@ -53,6 +54,9 @@ if (telegramToken) {
   const gateway = createTelegramGateway({ db, api: createTelegramApi(telegramToken), chat });
   gateway.start();
 }
+
+// Scheduler läuft immer mit; er prüft vor jedem Lauf den Not-Stopp selbst.
+createScheduler({ db, chat }).start();
 
 /** Kurze Beschreibung des aktiven Anbieters fürs Log (ohne Geheimnisse). */
 function describeProvider(): string {

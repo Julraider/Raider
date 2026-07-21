@@ -26,6 +26,8 @@
     "inbox": "tsx cli/src/inbox.ts",
     "skills": "tsx cli/src/skills.ts",
     "telegram": "tsx cli/src/telegram.ts",
+    "scheduler": "tsx cli/src/scheduler.ts",
+    "stop": "tsx cli/src/stop.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p desktop/tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write ."

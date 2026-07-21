@@ -1,5 +1,6 @@
 import type { ChatFn } from "../chat/turn";
 import { runSessionTurn } from "../chat/turn";
+import { isStopped } from "../db/emergency";
 import type { Db } from "../db/index";
 import { getSession } from "../db/repository";
 import { getChat, redeemPairingCode } from "../db/telegram";
@@ -65,6 +66,12 @@ export function createTelegramGateway(deps: TelegramGatewayDeps): TelegramGatewa
         chatId,
         "🔒 Erst koppeln, dann reden. Erzeuge am Rechner einen Code (npm run telegram -- pair) und schick mir /pair <Code>.",
       );
+      return;
+    }
+
+    // Not-Stopp: gekoppelte Chats bekommen eine Info, aber nichts geht ans Modell.
+    if (isStopped(db)) {
+      await api.sendMessage(chatId, "⛔ Not-Stopp ist aktiv. Raider antwortet gerade nicht.");
       return;
     }
 

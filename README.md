@@ -33,6 +33,8 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run inbox` | Freigabe-Posteingang (`-- propose`, `-- approve <id>`, `-- reject <id>`) |
 | `npm run skills` | Skills verwalten (`-- new`, `-- show <id>`, `-- on/off <id>`, `-- assign <agentId> <skillId>`, `-- del <id>`) |
 | `npm run telegram` | Telegram-Gateway (`-- pair` Code erzeugen, `-- unpair <chatId>`) |
+| `npm run scheduler` | Geplante Aufgaben (`-- new`, `-- on/off <id>`, `-- run <id>`, `-- del <id>`) |
+| `npm run stop` | Not-Stopp aktivieren (`-- release` lösen, `-- status` prüfen) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -54,6 +56,10 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
 | `RAIDER_TELEGRAM_TOKEN` | — | Bot-Token von @BotFather; nur serverseitig gelesen, nie geloggt |
 | `RAIDER_TELEGRAM_PAIRING_TTL` | `600` | Gültigkeitsdauer eines Kopplungs-Codes (Sekunden) |
+
+> Hinweis: `RAIDER_PORT` nicht auf einen vom Browser gesperrten „bad port"
+> setzen (z. B. 4190) — das eingebaute `fetch` verweigert solche Ports. Der
+> Standard 4179 ist frei.
 
 ## Anbieter
 
@@ -80,6 +86,23 @@ jeder Fremde, der den Bot findet, mitreden kann:
 Das Gateway nutzt die Telegram-Bot-API direkt (kein Zusatzpaket) und teilt sich
 mit der HTTP-Route dieselbe Dialog-Logik (Agent-Prompt + Kerngedächtnis + Skills).
 
+## Scheduler & Not-Stopp
+
+Aufgaben laufen nach Zeitplan — drei einfache Arten statt Cron:
+- **interval** — alle N Sekunden (`-- new interval 3600 "Name" "Prompt"`)
+- **daily** — täglich um `HH:MM` (`-- new daily 07:00 "Morgenbrief" "Fasse zusammen"`)
+- **once** — einmalig zu einem ISO-Zeitpunkt (danach automatisch deaktiviert)
+
+Jeder Lauf startet eine frische Sitzung (Kanal `cron`) und schickt den Prompt
+durch dieselbe Dialog-Logik wie Chat und Telegram. `npm run scheduler -- run <id>`
+führt sofort aus.
+
+Der **Not-Stopp** (`npm run stop`) ist der große rote Schalter: solange er aktiv
+ist, laufen **keine** geplanten Aufgaben, das Telegram-Gateway antwortet nicht am
+Modell, und Werkzeugaufrufe (MCP) werden mit `423` abgewiesen. Manuelles Tippen
+am Rechner bleibt möglich, damit du prüfen und den Stopp wieder lösen kannst
+(`npm run stop -- release`).
+
 ## API
 
 ```
@@ -105,6 +128,10 @@ GET/POST/DELETE /agents/:id/skills[/:skillId]   Skills einem Agenten zuweisen/en
 GET  /telegram/status                       Gateway aktiv? + Anzahl gekoppelter Chats
 POST /telegram/pairing-codes                Einmal-Code zum Koppeln erzeugen
 GET/DELETE /telegram/chats[/:chatId]        Gekoppelte Chats auflisten / entkoppeln
+POST/GET /scheduler/tasks                   Geplante Aufgaben anlegen/auflisten
+GET/PATCH/DELETE /scheduler/tasks/:id       Aufgabe lesen, ändern, löschen
+POST /scheduler/tasks/:id/run               Aufgabe jetzt ausführen (bei Not-Stopp gesperrt)
+GET/POST/DELETE /emergency-stop             Not-Stopp lesen / aktivieren / lösen
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)

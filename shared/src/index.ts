@@ -433,3 +433,61 @@ export interface TelegramStatusResponse {
 export interface TelegramChatListResponse {
   chats: TelegramChat[];
 }
+
+/**
+ * Scheduler (Schritt 12): Aufgaben nach Zeitplan. Drei einfache Arten statt
+ * Cron — interval (alle N Sekunden), daily (täglich HH:MM), once (einmalig ISO).
+ */
+
+export type ScheduleKind = "interval" | "daily" | "once";
+
+/** Eine geplante Aufgabe: Prompt, der zum Zeitpunkt an einen Agenten geht. */
+export interface ScheduledTask {
+  id: number;
+  name: string;
+  scheduleKind: ScheduleKind;
+  /** interval: Sekunden; daily: "HH:MM"; once: ISO-Zeitstempel. */
+  scheduleValue: string;
+  agentId: number | null;
+  prompt: string;
+  enabled: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  createdAt: string;
+}
+
+export interface CreateScheduledTaskRequest {
+  name: string;
+  scheduleKind: ScheduleKind;
+  scheduleValue: string;
+  prompt: string;
+  agentId?: number | null;
+}
+
+export interface UpdateScheduledTaskRequest {
+  name?: string;
+  scheduleKind?: ScheduleKind;
+  scheduleValue?: string;
+  prompt?: string;
+  agentId?: number | null;
+  enabled?: boolean;
+}
+
+export interface ScheduledTaskListResponse {
+  tasks: ScheduledTask[];
+}
+
+export interface RunTaskResponse {
+  sessionId: number;
+  ran: boolean;
+}
+
+/**
+ * Not-Stopp (Schritt 12): der große rote Schalter. Aktiv = keine automatische
+ * Aktivität (Scheduler, Telegram-Antworten, Werkzeugaufrufe).
+ */
+export interface EmergencyStopState {
+  engaged: boolean;
+  engagedAt: string | null;
+  reason: string | null;
+}
