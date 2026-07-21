@@ -318,8 +318,8 @@ export interface MemoryProposal {
   content: string;
 }
 
-/** Inhalt eines Vorschlags (in Schritt 10 um SkillProposal erweitert). */
-export type PendingProposal = MemoryProposal;
+/** Inhalt eines Vorschlags: Memory- oder Skill-Vorschlag. */
+export type PendingProposal = MemoryProposal | SkillProposal;
 
 export interface PendingWrite {
   id: number;
@@ -341,4 +341,64 @@ export interface CreatePendingWriteRequest {
 
 export interface PendingWriteListResponse {
   pendingWrites: PendingWrite[];
+}
+
+/**
+ * Skills: Markdown-Dateien (agentskills.io-kompatibel). Anlegen, importieren,
+ * exportieren, Agenten zuweisen, einzeln an- und ausschalten.
+ */
+
+export type SkillSource = "manual" | "auto";
+
+/** Metadaten eines Skills (Inhalt liegt in der Datei). */
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  category: string | null;
+  filePath: string;
+  active: boolean;
+  source: SkillSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Skill inkl. Markdown-Inhalt. */
+export interface SkillWithContent extends Skill {
+  content: string;
+}
+
+/** Vorschlag für einen Skill (für den Freigabe-Posteingang). */
+export interface SkillProposal {
+  name: string;
+  description?: string;
+  category?: string | null;
+  content: string;
+}
+
+export interface CreateSkillRequest {
+  name: string;
+  description?: string;
+  category?: string | null;
+  content: string;
+}
+
+export interface UpdateSkillRequest {
+  name?: string;
+  description?: string;
+  category?: string | null;
+  content?: string;
+  active?: boolean;
+}
+
+export interface ImportSkillRequest {
+  markdown: string;
+}
+
+export interface SkillExportResponse {
+  markdown: string;
+}
+
+export interface SkillListResponse {
+  skills: Skill[];
 }

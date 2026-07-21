@@ -1,3 +1,5 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -10,6 +12,8 @@ import type {
   SearchResponse,
   Session,
   SessionMessagesResponse,
+  Skill,
+  SkillWithContent,
   StatusResponse,
   ToolCall,
 } from "@raider/shared";
@@ -44,7 +48,8 @@ const defaultLimits = { agent: 2200, user: 1375 };
 function setupApp(chat: ChatFn = stubChat, mcp: McpRunner = stubMcp, limits = defaultLimits) {
   const db = openDatabase(":memory:");
   runMigrations(db, migrationsDir);
-  return createApp(db, chat, mcp, limits);
+  const skillsDir = mkdtempSync(join(tmpdir(), "raider-skills-"));
+  return createApp(db, chat, mcp, { memoryLimits: limits, skillsDir });
 }
 
 const json = (body: unknown): RequestInit => ({
@@ -62,8 +67,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(5);
-    expect(body.database.migrations.latest).toBe("005_pending.sql");
+    expect(body.database.migrations.applied).toBe(6);
+    expect(body.database.migrations.latest).toBe("006_skills.sql");
   });
 });
 
@@ -337,5 +342,91 @@ describe("Freigabe-Posteingang", () => {
 
     const list = (await (await app.request("/inbox")).json()) as { pendingWrites: PendingWrite[] };
     expect(list.pendingWrites).toHaveLength(1); // bleibt offen
+  });
+
+  it("wendet einen Skill-Vorschlag bei Freigabe an", async () => {
+    const app = setupApp();
+    const write = (await (
+      await app.request(
+        "/inbox",
+        json({ kind: "skill", proposal: { name: "Auto-Skill", content: "Automatisch erzeugt." } }),
+      )
+    ).json()) as PendingWrite;
+
+    const approved = await app.request(`/inbox/${write.id}/approve`, json({}));
+    expect(approved.status).toBe(200);
+
+    const list = (await (await app.request("/skills")).json()) as { skills: Skill[] };
+    expect(list.skills.map((s) => s.name)).toContain("Auto-Skill");
+  });
+});
+
+describe("Skills", () => {
+  it("legt einen Skill an, liest den Inhalt und listet", async () => {
+    const app = setupApp();
+    const created = await app.request(
+      "/skills",
+      json({ name: "Grüßen", description: "Höflich grüßen", content: "Sage freundlich Hallo." }),
+    );
+    expect(created.status).toBe(201);
+    const skill = (await created.json()) as Skill;
+
+    const full = (await (await app.request(`/skills/${skill.id}`)).json()) as SkillWithContent;
+    expect(full.content).toContain("freundlich Hallo");
+
+    const list = (await (await app.request("/skills")).json()) as { skills: Skill[] };
+    expect(list.skills).toHaveLength(1);
+  });
+
+  it("exportiert und importiert einen Skill (Rundlauf)", async () => {
+    const app = setupApp();
+    const created = (await (
+      await app.request("/skills", json({ name: "Test", content: "Inhalt X." }))
+    ).json()) as Skill;
+
+    const exp = (await (await app.request(`/skills/${created.id}/export`)).json()) as {
+      markdown: string;
+    };
+    expect(exp.markdown).toContain("name: Test");
+
+    const imported = (await (
+      await app.request("/skills/import", json({ markdown: exp.markdown }))
+    ).json()) as Skill;
+    expect(imported.id).not.toBe(created.id);
+    expect(imported.name).toBe("Test");
+  });
+
+  it("weist einen Skill einem Agenten zu und nimmt ihn in den Chat auf", async () => {
+    let captured: ChatRequest | null = null;
+    const capturingChat: ChatFn = async (request) => {
+      captured = request;
+      return stubChat(request);
+    };
+    const app = setupApp(capturingChat);
+
+    const agent = (await (await app.request("/agents", json({ name: "A" }))).json()) as Agent;
+    const skill = (await (
+      await app.request(
+        "/skills",
+        json({ name: "Piraten-Stil", content: "Antworte wie ein Pirat, arr!" }),
+      )
+    ).json()) as Skill;
+
+    const assigned = await app.request(`/agents/${agent.id}/skills/${skill.id}`, json({}));
+    expect(assigned.status).toBe(200);
+
+    const agentSkills = (await (await app.request(`/agents/${agent.id}/skills`)).json()) as {
+      skills: Skill[];
+    };
+    expect(agentSkills.skills).toHaveLength(1);
+
+    const session = (await (
+      await app.request("/sessions", json({ channel: "cli", agentId: agent.id }))
+    ).json()) as Session;
+    await app.request(`/sessions/${session.id}/messages`, json({ content: "Hallo" }));
+
+    const request = captured as unknown as ChatRequest;
+    expect(request.system).toContain("## Skill: Piraten-Stil");
+    expect(request.system).toContain("wie ein Pirat");
   });
 });

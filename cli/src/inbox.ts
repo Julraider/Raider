@@ -1,4 +1,4 @@
-import type { MemoryStore } from "@raider/shared";
+import type { MemoryProposal, MemoryStore, SkillProposal } from "@raider/shared";
 import { ApiError, coreClient, resolveBaseUrl } from "./client";
 
 /**
@@ -62,7 +62,9 @@ async function main(): Promise<void> {
     }
     for (const write of pendingWrites) {
       const what =
-        write.kind === "memory" ? `${write.proposal.store}: ${write.proposal.content}` : write.kind;
+        write.kind === "memory"
+          ? `${(write.proposal as MemoryProposal).store}: ${(write.proposal as MemoryProposal).content}`
+          : `Skill "${(write.proposal as SkillProposal).name}"`;
       console.log(`#${write.id}  [${write.kind}, ${write.origin}]  ${what}`);
     }
     console.error("\nFreigeben: npm run inbox -- approve <id>   Ablehnen: -- reject <id>");

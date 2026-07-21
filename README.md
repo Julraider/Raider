@@ -31,6 +31,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run mcp` | MCP-Server verwalten/testen (`-- add`, `-- test <id>`, `-- call <id> <tool>`) |
 | `npm run memory` | Kerngedächtnis ansehen/bearbeiten (`-- add`, `-- edit`, `-- del`) |
 | `npm run inbox` | Freigabe-Posteingang (`-- propose`, `-- approve <id>`, `-- reject <id>`) |
+| `npm run skills` | Skills verwalten (`-- new`, `-- show <id>`, `-- on/off <id>`, `-- assign <agentId> <skillId>`, `-- del <id>`) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -76,6 +77,11 @@ GET/POST /memory/:store                     Kerngedächtnis lesen/ergänzen (age
 PATCH/DELETE /memory/entries/:id            Eintrag ändern/löschen
 POST/GET /inbox                             Freigabe-Posteingang (Vorschläge)
 POST /inbox/:id/approve | /reject           Vorschlag freigeben (anwenden) | ablehnen
+POST/GET /skills                            Skills anlegen/auflisten (Markdown-Dateien)
+GET/PATCH/DELETE /skills/:id                Skill inkl. Inhalt lesen, ändern, löschen
+GET  /skills/:id/export                     Skill als agentskills.io-Markdown exportieren
+POST /skills/import                         Skill aus Markdown importieren
+GET/POST/DELETE /agents/:id/skills[/:skillId]   Skills einem Agenten zuweisen/entziehen
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)

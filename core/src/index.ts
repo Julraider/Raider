@@ -12,8 +12,9 @@ import { version } from "./version";
 
 const config = loadConfig();
 
-// Datenordner sicherstellen, dann DB öffnen und migrieren.
+// Datenordner (und Skill-Ordner) sicherstellen, dann DB öffnen und migrieren.
 mkdirSync(dirname(config.databasePath), { recursive: true });
+mkdirSync(config.skillsDir, { recursive: true });
 const db = openDatabase(config.databasePath);
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "db", "migrations");
@@ -23,7 +24,10 @@ const migrations = runMigrations(db, migrationsDir);
 const provider = createProvider(config, getAnthropicApiKey());
 const chat: ChatFn = (request) => provider.complete(request);
 
-const app = createApp(db, chat, createMcpRunner(), config.memory);
+const app = createApp(db, chat, createMcpRunner(), {
+  memoryLimits: config.memory,
+  skillsDir: config.skillsDir,
+});
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Raider Core v${version} läuft auf http://localhost:${info.port}`);

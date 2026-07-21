@@ -38,6 +38,8 @@ export interface CoreConfig {
   anthropic: AnthropicSettings;
   ollama: OllamaSettings;
   memory: MemoryLimits;
+  /** Ordner für Skill-Dateien. */
+  skillsDir: string;
 }
 
 const DEFAULT_PORT = 4179;
@@ -78,6 +80,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
         ? Number(env.RAIDER_MEMORY_USER_LIMIT)
         : DEFAULT_MEMORY_USER_LIMIT,
     },
+    skillsDir: env.RAIDER_SKILLS_DIR ?? join(dataDir, "skills"),
   };
 }
 

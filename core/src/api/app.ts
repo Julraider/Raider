@@ -9,8 +9,11 @@ import type {
   CreateMemoryRequest,
   CreatePendingWriteRequest,
   CreateSessionRequest,
+  CreateSkillRequest,
+  ImportSkillRequest,
   McpServerListResponse,
   McpTestResponse,
+  MemoryProposal,
   MemoryView,
   PendingWriteListResponse,
   PendingWriteStatus,
@@ -18,15 +21,26 @@ import type {
   SearchResponse,
   SessionListResponse,
   SessionMessagesResponse,
+  SkillExportResponse,
+  SkillListResponse,
+  SkillProposal,
   StatusResponse,
   ToolCallListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
   UpdateMemoryRequest,
+  UpdateSkillRequest,
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import type { MemoryLimits } from "../config";
+
+/** Konfiguration, die die API zur Laufzeit braucht. */
+export interface AppConfig {
+  memoryLimits: MemoryLimits;
+  skillsDir: string;
+}
+
 import {
   createAgent,
   deleteAgent,
@@ -70,6 +84,20 @@ import {
   listSessions,
   searchMessages,
 } from "../db/repository";
+import {
+  activeAgentSkillContents,
+  assignSkill,
+  createSkill,
+  deleteSkill,
+  exportSkill,
+  getSkill,
+  getSkillContent,
+  importSkill,
+  listAgentSkills,
+  listSkills,
+  unassignSkill,
+  updateSkill,
+} from "../db/skills";
 import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
 import { version } from "../version";
@@ -82,10 +110,10 @@ export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
  * eine In-Memory-Datenbank und eine austauschbare Chat-Funktion, ohne einen
  * echten Port oder Anbieter zu brauchen.
  */
-export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: MemoryLimits): Hono {
+export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfig): Hono {
   const app = new Hono();
   const limitFor = (store: "agent" | "user") =>
-    store === "agent" ? memoryLimits.agent : memoryLimits.user;
+    store === "agent" ? config.memoryLimits.agent : config.memoryLimits.user;
 
   // Lokale Clients (auch der Electron-Renderer im Browser) dürfen zugreifen.
   // Der Core lauscht ohnehin nur auf localhost.
@@ -164,7 +192,15 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: Me
     const agent = session.agentId !== null ? getAgent(db, session.agentId) : undefined;
     const agentPrompt = agent && agent.systemPrompt.trim() !== "" ? agent.systemPrompt : undefined;
     const memory = buildMemoryContext(db);
-    const systemParts = [agentPrompt, memory].filter((part): part is string => Boolean(part));
+    // Aktive, dem Agenten zugewiesene Skills kommen als Kontext dazu.
+    const skills = agent
+      ? activeAgentSkillContents(db, agent.id)
+          .map((skill) => `## Skill: ${skill.name}\n${skill.content}`)
+          .join("\n\n") || undefined
+      : undefined;
+    const systemParts = [agentPrompt, memory, skills].filter((part): part is string =>
+      Boolean(part),
+    );
     const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
     const model = body?.model ?? agent?.model ?? undefined;
 
@@ -432,7 +468,7 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: Me
     if (write.status !== "pending") return c.json({ error: "Bereits bearbeitet." }, 409);
 
     if (write.kind === "memory") {
-      const { store, content } = write.proposal;
+      const { store, content } = write.proposal as MemoryProposal;
       try {
         // Anwenden geht durch die Memory-Prüfung (Limit, Duplikat, Injection).
         const applied = addMemoryEntry(
@@ -448,7 +484,17 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: Me
       }
     }
 
-    return c.json({ error: "Skill-Vorschläge werden ab Schritt 10 unterstützt." }, 501);
+    // kind === "skill": als neuen Skill anlegen.
+    const proposal = write.proposal as SkillProposal;
+    const applied = createSkill(db, config.skillsDir, {
+      name: proposal.name,
+      description: proposal.description,
+      category: proposal.category,
+      content: proposal.content,
+      source: "auto",
+    });
+    const pendingWrite = resolvePendingWrite(db, id, "approved");
+    return c.json({ pendingWrite, applied });
   });
 
   app.post("/inbox/:id/reject", (c) => {
@@ -458,6 +504,92 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, memoryLimits: Me
     if (!write) return c.json({ error: "Vorschlag nicht gefunden." }, 404);
     if (write.status !== "pending") return c.json({ error: "Bereits bearbeitet." }, 409);
     return c.json(resolvePendingWrite(db, id, "rejected"));
+  });
+
+  // --- Skills ---
+
+  app.post("/skills", async (c) => {
+    const body = await readJson<CreateSkillRequest>(c);
+    const name = body?.name?.trim();
+    if (!name) return c.json({ error: "Feld 'name' darf nicht leer sein." }, 400);
+    const skill = createSkill(db, config.skillsDir, {
+      name,
+      description: body?.description ?? "",
+      category: body?.category ?? null,
+      content: body?.content ?? "",
+    });
+    return c.json(skill, 201);
+  });
+
+  app.get("/skills", (c) => {
+    const body: SkillListResponse = { skills: listSkills(db) };
+    return c.json(body);
+  });
+
+  app.get("/skills/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Skill-ID." }, 400);
+    const skill = getSkillContent(db, id);
+    if (!skill) return c.json({ error: "Skill nicht gefunden." }, 404);
+    return c.json(skill);
+  });
+
+  app.patch("/skills/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Skill-ID." }, 400);
+    const body = (await readJson<UpdateSkillRequest>(c)) ?? {};
+    const skill = updateSkill(db, id, body);
+    if (!skill) return c.json({ error: "Skill nicht gefunden." }, 404);
+    return c.json(skill);
+  });
+
+  app.delete("/skills/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Skill-ID." }, 400);
+    if (!deleteSkill(db, id)) return c.json({ error: "Skill nicht gefunden." }, 404);
+    return c.json({ deleted: true });
+  });
+
+  app.get("/skills/:id/export", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Skill-ID." }, 400);
+    const markdown = exportSkill(db, id);
+    if (markdown === undefined) return c.json({ error: "Skill nicht gefunden." }, 404);
+    const body: SkillExportResponse = { markdown };
+    return c.json(body);
+  });
+
+  app.post("/skills/import", async (c) => {
+    const body = await readJson<ImportSkillRequest>(c);
+    if (!body?.markdown?.trim())
+      return c.json({ error: "Feld 'markdown' darf nicht leer sein." }, 400);
+    return c.json(importSkill(db, config.skillsDir, body.markdown), 201);
+  });
+
+  app.get("/agents/:id/skills", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Agent-ID." }, 400);
+    if (!getAgent(db, id)) return c.json({ error: "Agent nicht gefunden." }, 404);
+    const body: SkillListResponse = { skills: listAgentSkills(db, id) };
+    return c.json(body);
+  });
+
+  app.post("/agents/:id/skills/:skillId", (c) => {
+    const agentId = parseId(c.req.param("id"));
+    const skillId = parseId(c.req.param("skillId"));
+    if (agentId === null || skillId === null) return c.json({ error: "Ungültige ID." }, 400);
+    if (!getAgent(db, agentId)) return c.json({ error: "Agent nicht gefunden." }, 404);
+    if (!getSkill(db, skillId)) return c.json({ error: "Skill nicht gefunden." }, 404);
+    assignSkill(db, agentId, skillId);
+    return c.json({ assigned: true });
+  });
+
+  app.delete("/agents/:id/skills/:skillId", (c) => {
+    const agentId = parseId(c.req.param("id"));
+    const skillId = parseId(c.req.param("skillId"));
+    if (agentId === null || skillId === null) return c.json({ error: "Ungültige ID." }, 400);
+    unassignSkill(db, agentId, skillId);
+    return c.json({ unassigned: true });
   });
 
   return app;

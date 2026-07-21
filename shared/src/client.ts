@@ -9,6 +9,8 @@ import type {
   CreateMemoryRequest,
   CreatePendingWriteRequest,
   CreateSessionRequest,
+  CreateSkillRequest,
+  ImportSkillRequest,
   McpServer,
   McpServerListResponse,
   McpTestResponse,
@@ -23,11 +25,16 @@ import type {
   Session,
   SessionListResponse,
   SessionMessagesResponse,
+  Skill,
+  SkillExportResponse,
+  SkillListResponse,
+  SkillWithContent,
   ToolCall,
   ToolCallListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
   UpdateMemoryRequest,
+  UpdateSkillRequest,
 } from "./index";
 
 /**
@@ -90,6 +97,16 @@ export interface RaiderClient {
   listInbox(status?: PendingWriteStatus): Promise<PendingWriteListResponse>;
   approvePendingWrite(id: number): Promise<{ pendingWrite: PendingWrite; applied?: unknown }>;
   rejectPendingWrite(id: number): Promise<PendingWrite>;
+  createSkill(input: CreateSkillRequest): Promise<Skill>;
+  listSkills(): Promise<SkillListResponse>;
+  getSkill(id: number): Promise<SkillWithContent>;
+  updateSkill(id: number, patch: UpdateSkillRequest): Promise<Skill>;
+  deleteSkill(id: number): Promise<{ deleted: boolean }>;
+  exportSkill(id: number): Promise<SkillExportResponse>;
+  importSkill(input: ImportSkillRequest): Promise<Skill>;
+  listAgentSkills(agentId: number): Promise<SkillListResponse>;
+  assignSkill(agentId: number, skillId: number): Promise<{ assigned: boolean }>;
+  unassignSkill(agentId: number, skillId: number): Promise<{ unassigned: boolean }>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -148,5 +165,26 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       ),
     rejectPendingWrite: (id) =>
       requestJson<PendingWrite>(`${base}/inbox/${id}/reject`, jsonInit("POST", {})),
+    createSkill: (input) => requestJson<Skill>(`${base}/skills`, jsonInit("POST", input)),
+    listSkills: () => requestJson<SkillListResponse>(`${base}/skills`),
+    getSkill: (id) => requestJson<SkillWithContent>(`${base}/skills/${id}`),
+    updateSkill: (id, patch) =>
+      requestJson<Skill>(`${base}/skills/${id}`, jsonInit("PATCH", patch)),
+    deleteSkill: (id) =>
+      requestJson<{ deleted: boolean }>(`${base}/skills/${id}`, jsonInit("DELETE", {})),
+    exportSkill: (id) => requestJson<SkillExportResponse>(`${base}/skills/${id}/export`),
+    importSkill: (input) => requestJson<Skill>(`${base}/skills/import`, jsonInit("POST", input)),
+    listAgentSkills: (agentId) =>
+      requestJson<SkillListResponse>(`${base}/agents/${agentId}/skills`),
+    assignSkill: (agentId, skillId) =>
+      requestJson<{ assigned: boolean }>(
+        `${base}/agents/${agentId}/skills/${skillId}`,
+        jsonInit("POST", {}),
+      ),
+    unassignSkill: (agentId, skillId) =>
+      requestJson<{ unassigned: boolean }>(
+        `${base}/agents/${agentId}/skills/${skillId}`,
+        jsonInit("DELETE", {}),
+      ),
   };
 }
