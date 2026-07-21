@@ -1,25 +1,63 @@
-import { ApiError, createRaiderClient, type StoredMessage } from "@raider/shared";
+import { type Agent, ApiError, createRaiderClient, type StoredMessage } from "@raider/shared";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from "react";
 import { coreBaseUrl } from "./coreUrl";
 
 /**
- * Chat-Fenster. Bewusst „dumm": es zeigt an und ruft die Core-API — die ganze
- * Logik (Verlauf, Modellaufruf, Speicherung) steckt im Core.
+ * Chat-Fenster mit Agentenwahl. Bewusst „dumm": es zeigt an und ruft die
+ * Core-API — Logik (Verlauf, Agent, Modell, Speicherung) steckt im Core.
  */
 export function App() {
   const client = useMemo(() => createRaiderClient(coreBaseUrl()), []);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentId, setAgentId] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Agenten laden und eine erste Sitzung starten.
   useEffect(() => {
-    client
-      .createSession({ channel: "desktop" })
-      .then((session) => setSessionId(session.id))
-      .catch(() => setError("Kein Core erreichbar. Läuft der Core?"));
+    let cancelled = false;
+    async function init(): Promise<void> {
+      try {
+        const list = await client.listAgents();
+        if (!cancelled) setAgents(list.agents);
+      } catch {
+        // Agentenliste ist optional beim Start.
+      }
+      try {
+        const session = await client.createSession({ channel: "desktop", agentId: null });
+        if (!cancelled) {
+          setSessionId(session.id);
+          setMessages([]);
+        }
+      } catch {
+        if (!cancelled) setError("Kein Core erreichbar. Läuft der Core?");
+      }
+    }
+    void init();
+    return () => {
+      cancelled = true;
+    };
   }, [client]);
+
+  async function startSession(nextAgentId: number | null): Promise<void> {
+    setError(null);
+    try {
+      const session = await client.createSession({ channel: "desktop", agentId: nextAgentId });
+      setSessionId(session.id);
+      setMessages([]);
+    } catch {
+      setError("Kein Core erreichbar. Läuft der Core?");
+    }
+  }
+
+  function onSelectAgent(value: string): void {
+    const next = value === "" ? null : Number(value);
+    setAgentId(next);
+    void startSession(next);
+  }
 
   async function refresh(id: number): Promise<void> {
     const result = await client.getMessages(id);
@@ -51,9 +89,19 @@ export function App() {
     <div style={styles.app}>
       <header style={styles.header}>
         <strong>Raider</strong>
-        <span style={styles.session}>
-          {sessionId === null ? "verbinde…" : `Sitzung #${sessionId} · desktop`}
-        </span>
+        <select
+          style={styles.select}
+          value={agentId === null ? "" : String(agentId)}
+          onChange={(e) => onSelectAgent(e.target.value)}
+          aria-label="Agent"
+        >
+          <option value="">Ohne Agent</option>
+          {agents.map((agent) => (
+            <option key={agent.id} value={String(agent.id)}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
       </header>
 
       <main style={styles.messages}>
@@ -100,7 +148,12 @@ const styles: Record<string, CSSProperties> = {
     padding: "0.75rem 1rem",
     borderBottom: "1px solid #e5e5e5",
   },
-  session: { fontSize: "0.85rem", color: "#666" },
+  select: {
+    padding: "0.35rem 0.5rem",
+    fontSize: "0.9rem",
+    borderRadius: 6,
+    border: "1px solid #ccc",
+  },
   messages: {
     flex: 1,
     overflowY: "auto",

@@ -7,6 +7,7 @@ interface SessionRow {
   title: string | null;
   channel: string;
   status: string;
+  agent_id: number | null;
   created_at: string;
   updated_at: string;
   message_count?: number;
@@ -33,6 +34,7 @@ interface SearchRow {
 export interface NewSession {
   title?: string | null;
   channel?: SessionChannel;
+  agentId?: number | null;
 }
 
 export interface NewMessage {
@@ -45,8 +47,8 @@ export interface NewMessage {
 
 export function createSession(db: Db, input: NewSession = {}): Session {
   const info = db
-    .prepare("INSERT INTO sessions (title, channel) VALUES (?, ?)")
-    .run(input.title ?? null, input.channel ?? "cli");
+    .prepare("INSERT INTO sessions (title, channel, agent_id) VALUES (?, ?, ?)")
+    .run(input.title ?? null, input.channel ?? "cli", input.agentId ?? null);
   const session = getSession(db, Number(info.lastInsertRowid));
   if (!session) throw new Error("Session konnte nicht angelegt werden.");
   return session;
@@ -54,7 +56,9 @@ export function createSession(db: Db, input: NewSession = {}): Session {
 
 export function getSession(db: Db, id: number): Session | undefined {
   const row = db
-    .prepare("SELECT id, title, channel, status, created_at, updated_at FROM sessions WHERE id = ?")
+    .prepare(
+      "SELECT id, title, channel, status, agent_id, created_at, updated_at FROM sessions WHERE id = ?",
+    )
     .get(id) as SessionRow | undefined;
   return row ? toSession(row) : undefined;
 }
@@ -62,7 +66,7 @@ export function getSession(db: Db, id: number): Session | undefined {
 export function listSessions(db: Db): Session[] {
   const rows = db
     .prepare(
-      `SELECT s.id, s.title, s.channel, s.status, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.channel, s.status, s.agent_id, s.created_at, s.updated_at,
               COUNT(m.id) AS message_count
        FROM sessions s
        LEFT JOIN messages m ON m.session_id = s.id
@@ -155,6 +159,7 @@ function toSession(row: SessionRow): Session {
     title: row.title,
     channel: row.channel as SessionChannel,
     status: row.status,
+    agentId: row.agent_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.message_count !== undefined ? { messageCount: row.message_count } : {}),

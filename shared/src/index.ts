@@ -87,10 +87,52 @@ export interface Session {
   title: string | null;
   channel: SessionChannel;
   status: string;
+  /** Zugeordneter Agent, oder null (Standardstimme). */
+  agentId: number | null;
   createdAt: string;
   updatedAt: string;
   /** Anzahl Nachrichten (nur in Listen gesetzt). */
   messageCount?: number;
+}
+
+/**
+ * Ein Agent = Systemprompt + Modell (+ später Werkzeuge & Skills). Sitzungen
+ * verweisen auf einen Agenten; der Core prägt damit jede Nachricht.
+ */
+export interface Agent {
+  id: number;
+  name: string;
+  icon: string | null;
+  systemPrompt: string;
+  /** Modell-ID, oder null → Standardmodell des Cores. */
+  model: string | null;
+  /** Ausweichmodell, oder null. */
+  fallbackModel: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Body für `POST /agents`. */
+export interface CreateAgentRequest {
+  name: string;
+  icon?: string | null;
+  systemPrompt?: string;
+  model?: string | null;
+  fallbackModel?: string | null;
+}
+
+/** Body für `PATCH /agents/:id` (nur gesetzte Felder ändern). */
+export interface UpdateAgentRequest {
+  name?: string;
+  icon?: string | null;
+  systemPrompt?: string;
+  model?: string | null;
+  fallbackModel?: string | null;
+}
+
+/** Antwort auf `GET /agents`. */
+export interface AgentListResponse {
+  agents: Agent[];
 }
 
 /** Eine gespeicherte Nachricht. */
@@ -118,6 +160,7 @@ export interface SearchHit {
 export interface CreateSessionRequest {
   title?: string;
   channel?: SessionChannel;
+  agentId?: number | null;
 }
 
 /** Body für `POST /sessions/:id/messages`. */

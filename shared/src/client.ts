@@ -1,12 +1,16 @@
 import type {
+  Agent,
+  AgentListResponse,
   ChatRequest,
   ChatResponse,
+  CreateAgentRequest,
   CreateSessionRequest,
   PostMessageRequest,
   SearchResponse,
   Session,
   SessionListResponse,
   SessionMessagesResponse,
+  UpdateAgentRequest,
 } from "./index";
 
 /**
@@ -48,6 +52,12 @@ export interface RaiderClient {
   getMessages(sessionId: number): Promise<SessionMessagesResponse>;
   sendMessage(sessionId: number, input: PostMessageRequest): Promise<ChatResponse>;
   search(query: string): Promise<SearchResponse>;
+  createAgent(input: CreateAgentRequest): Promise<Agent>;
+  listAgents(): Promise<AgentListResponse>;
+  getAgent(id: number): Promise<Agent>;
+  updateAgent(id: number, patch: UpdateAgentRequest): Promise<Agent>;
+  deleteAgent(id: number): Promise<{ deleted: boolean }>;
+  duplicateAgent(id: number): Promise<Agent>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -64,5 +74,14 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
     sendMessage: (sessionId, input) =>
       requestJson<ChatResponse>(`${base}/sessions/${sessionId}/messages`, jsonInit("POST", input)),
     search: (query) => requestJson<SearchResponse>(`${base}/search?q=${encodeURIComponent(query)}`),
+    createAgent: (input) => requestJson<Agent>(`${base}/agents`, jsonInit("POST", input)),
+    listAgents: () => requestJson<AgentListResponse>(`${base}/agents`),
+    getAgent: (id) => requestJson<Agent>(`${base}/agents/${id}`),
+    updateAgent: (id, patch) =>
+      requestJson<Agent>(`${base}/agents/${id}`, jsonInit("PATCH", patch)),
+    deleteAgent: (id) =>
+      requestJson<{ deleted: boolean }>(`${base}/agents/${id}`, jsonInit("DELETE", {})),
+    duplicateAgent: (id) =>
+      requestJson<Agent>(`${base}/agents/${id}/duplicate`, jsonInit("POST", {})),
   };
 }

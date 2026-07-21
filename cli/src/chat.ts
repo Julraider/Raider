@@ -3,35 +3,42 @@ import { createInterface } from "node:readline/promises";
 import { ApiError, coreClient, resolveBaseUrl } from "./client";
 
 /**
- * Interaktiver CLI-Chat, DB-gestützt (Schritte 3–4). Redet ausschließlich über
- * die lokale API. Der Verlauf lebt im Core (SQLite) — die CLI hält keinen
- * Zustand mehr und der Dialog überlebt Neustart.
+ * Interaktiver CLI-Chat, DB-gestützt, mit Agentenwahl (Schritte 3–6). Redet
+ * ausschließlich über die lokale API. Der Verlauf lebt im Core (SQLite).
  *
  * Nutzung:  npm run chat        (Core muss laufen: npm run dev)
- * Befehle:  /help  /reset  /model <id>  /exit
+ * Befehle:  /help  /reset  /model <id>  /agents  /agent <id|none>  /exit
  */
 
 const HELP = [
   "Befehle:",
-  "  /help          diese Hilfe",
-  "  /reset         neue Sitzung beginnen",
-  "  /model <id>    Modell wechseln (z. B. /model claude-haiku-4-5)",
-  "  /exit          beenden (oder Strg-D)",
+  "  /help            diese Hilfe",
+  "  /reset           neue Sitzung beginnen",
+  "  /model <id>      Modell wechseln (überstimmt den Agenten)",
+  "  /agents          Agenten auflisten",
+  "  /agent <id>      Agent wählen (neue Sitzung)",
+  "  /agent none      ohne Agent weiter (neue Sitzung)",
+  "  /exit            beenden (oder Strg-D)",
 ].join("\n");
 
 async function main(): Promise<void> {
   const baseUrl = resolveBaseUrl();
   const client = coreClient();
 
+  let agentId: number | null = null;
+  let model: string | undefined;
+
+  async function startSession(): Promise<number> {
+    return (await client.createSession({ channel: "cli", agentId })).id;
+  }
+
   let sessionId: number;
   try {
-    sessionId = (await client.createSession({ channel: "cli" })).id;
+    sessionId = await startSession();
   } catch {
     stdout.write(`Kein Core erreichbar unter ${baseUrl}. Läuft 'npm run dev'?\n`);
     process.exit(1);
   }
-
-  let model: string | undefined;
 
   const rl = createInterface({ input: stdin, output: stdout });
   stdout.write(`Raider-Chat — Sitzung #${sessionId}. /help für Befehle, /exit zum Beenden.\n`);
@@ -53,10 +60,44 @@ async function main(): Promise<void> {
     }
     if (input === "/reset") {
       try {
-        sessionId = (await client.createSession({ channel: "cli" })).id;
+        sessionId = await startSession();
         stdout.write(`(neue Sitzung #${sessionId})\n`);
       } catch {
         stdout.write("Konnte keine neue Sitzung anlegen.\n");
+      }
+      rl.prompt();
+      continue;
+    }
+    if (input === "/agents") {
+      try {
+        const { agents } = await client.listAgents();
+        if (agents.length === 0) stdout.write("Noch keine Agenten (npm run agents -- new …).\n");
+        for (const agent of agents) {
+          stdout.write(`  #${agent.id}  ${agent.name}  (${agent.model ?? "Standardmodell"})\n`);
+        }
+      } catch {
+        stdout.write("Konnte Agenten nicht laden.\n");
+      }
+      rl.prompt();
+      continue;
+    }
+    if (input.startsWith("/agent ")) {
+      const arg = input.slice("/agent ".length).trim();
+      agentId = arg === "none" ? null : Number(arg);
+      if (agentId !== null && !Number.isInteger(agentId)) {
+        stdout.write("Ungültige Agent-ID.\n");
+        agentId = null;
+      } else {
+        try {
+          sessionId = await startSession();
+          stdout.write(
+            agentId === null
+              ? `(ohne Agent, neue Sitzung #${sessionId})\n`
+              : `(Agent #${agentId}, neue Sitzung #${sessionId})\n`,
+          );
+        } catch {
+          stdout.write("Konnte keine neue Sitzung anlegen.\n");
+        }
       }
       rl.prompt();
       continue;
