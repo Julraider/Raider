@@ -1,16 +1,22 @@
 import type {
   AgentListResponse,
+  CallToolRequest,
   ChatMessage,
   ChatRequest,
   ChatResponse,
   CreateAgentRequest,
+  CreateMcpServerRequest,
   CreateSessionRequest,
+  McpServerListResponse,
+  McpTestResponse,
   PostMessageRequest,
   SearchResponse,
   SessionListResponse,
   SessionMessagesResponse,
   StatusResponse,
+  ToolCallListResponse,
   UpdateAgentRequest,
+  UpdateMcpServerRequest,
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
@@ -23,6 +29,16 @@ import {
   updateAgent,
 } from "../db/agents";
 import type { Db } from "../db/index";
+import {
+  createMcpServer,
+  deleteMcpServer,
+  getMcpServer,
+  getMcpServerConfig,
+  listMcpServers,
+  listToolCalls,
+  recordToolCall,
+  updateMcpServer,
+} from "../db/mcp";
 import { getMigrationStatus } from "../db/migrate";
 import {
   addMessage,
@@ -32,6 +48,7 @@ import {
   listSessions,
   searchMessages,
 } from "../db/repository";
+import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
 import { version } from "../version";
 
@@ -43,7 +60,7 @@ export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
  * eine In-Memory-Datenbank und eine austauschbare Chat-Funktion, ohne einen
  * echten Port oder Anbieter zu brauchen.
  */
-export function createApp(db: Db, chat: ChatFn): Hono {
+export function createApp(db: Db, chat: ChatFn, mcp: McpRunner): Hono {
   const app = new Hono();
 
   // Lokale Clients (auch der Electron-Renderer im Browser) dürfen zugreifen.
@@ -203,7 +220,111 @@ export function createApp(db: Db, chat: ChatFn): Hono {
     return c.json(agent, 201);
   });
 
+  // --- MCP-Server ---
+
+  app.post("/mcp/servers", async (c) => {
+    const body = await readJson<CreateMcpServerRequest>(c);
+    const name = body?.name?.trim();
+    if (!name || (body?.type !== "stdio" && body?.type !== "http")) {
+      return c.json({ error: "Felder 'name' und 'type' (stdio|http) sind nötig." }, 400);
+    }
+    const server = createMcpServer(db, {
+      name,
+      type: body.type,
+      command: body.command ?? null,
+      args: body.args ?? [],
+      url: body.url ?? null,
+      env: body.env ?? {},
+      enabled: body.enabled ?? true,
+    });
+    return c.json(server, 201);
+  });
+
+  app.get("/mcp/servers", (c) => {
+    const body: McpServerListResponse = { servers: listMcpServers(db) };
+    return c.json(body);
+  });
+
+  app.get("/mcp/servers/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    const server = getMcpServer(db, id);
+    if (!server) return c.json({ error: "Server nicht gefunden." }, 404);
+    return c.json(server);
+  });
+
+  app.patch("/mcp/servers/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    const body = (await readJson<UpdateMcpServerRequest>(c)) ?? {};
+    const server = updateMcpServer(db, id, body);
+    if (!server) return c.json({ error: "Server nicht gefunden." }, 404);
+    return c.json(server);
+  });
+
+  app.delete("/mcp/servers/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    if (!deleteMcpServer(db, id)) return c.json({ error: "Server nicht gefunden." }, 404);
+    return c.json({ deleted: true });
+  });
+
+  // Verbindungstest: verbinden, Werkzeuge auflisten, trennen.
+  app.post("/mcp/servers/:id/test", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    const config = getMcpServerConfig(db, id);
+    if (!config) return c.json({ error: "Server nicht gefunden." }, 404);
+    if (!config.enabled) return c.json({ error: "Server ist deaktiviert." }, 409);
+    try {
+      const body: McpTestResponse = { serverId: id, tools: await mcp.listTools(config) };
+      return c.json(body);
+    } catch (error) {
+      return c.json({ error: `Verbindung fehlgeschlagen: ${messageOf(error)}` }, 502);
+    }
+  });
+
+  // Werkzeugaufruf — nur mit Freigabe (approvedBy).
+  app.post("/mcp/servers/:id/tools/:tool/call", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    const config = getMcpServerConfig(db, id);
+    if (!config) return c.json({ error: "Server nicht gefunden." }, 404);
+    if (!config.enabled) return c.json({ error: "Server ist deaktiviert." }, 409);
+
+    const body = await readJson<CallToolRequest>(c);
+    const approvedBy = body?.approvedBy?.trim();
+    if (!approvedBy) return c.json({ error: "Freigabe erforderlich." }, 403);
+
+    const tool = c.req.param("tool");
+    const args = body?.arguments ?? {};
+    try {
+      const result = await mcp.callTool(config, tool, args);
+      const record = recordToolCall(db, {
+        serverId: id,
+        toolName: tool,
+        arguments: args,
+        result: result.content,
+        isError: result.isError,
+        approvedBy,
+      });
+      return c.json(record);
+    } catch (error) {
+      return c.json({ error: `Werkzeugaufruf fehlgeschlagen: ${messageOf(error)}` }, 502);
+    }
+  });
+
+  app.get("/tool-calls", (c) => {
+    const body: ToolCallListResponse = { toolCalls: listToolCalls(db) };
+    return c.json(body);
+  });
+
   return app;
+}
+
+/** Fehlermeldung aus einem unbekannten Fehler ziehen. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Liest JSON aus dem Request, oder null bei ungültigem Body. */

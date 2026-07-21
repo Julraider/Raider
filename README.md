@@ -28,6 +28,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run chat` | Interaktiver Dialog gegen den Core (Core muss laufen) |
 | `npm run search -- "Begriff"` | Volltextsuche über gespeicherte Nachrichten |
 | `npm run agents` | Agenten auflisten (oder `-- new "Name" "Prompt"`) |
+| `npm run mcp` | MCP-Server verwalten/testen (`-- add`, `-- test <id>`, `-- call <id> <tool>`) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -65,6 +66,10 @@ POST /sessions                   Neue Sitzung anlegen (optional agentId)
 GET  /sessions                   Sitzungen auflisten
 POST/GET/PATCH/DELETE /agents    Agenten anlegen, auflisten, ändern, löschen
 POST /agents/:id/duplicate       Agent duplizieren
+POST/GET/PATCH/DELETE /mcp/servers          MCP-Server verwalten (Secrets geschwärzt)
+POST /mcp/servers/:id/test                  Verbindungstest (Werkzeuge auflisten)
+POST /mcp/servers/:id/tools/:tool/call      Werkzeugaufruf — nur mit Freigabe
+GET  /tool-calls                            Protokoll aller Werkzeugaufrufe
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)

@@ -6,6 +6,7 @@ import { type ChatFn, createApp } from "./api/app";
 import { getAnthropicApiKey, loadConfig } from "./config";
 import { openDatabase } from "./db/index";
 import { runMigrations } from "./db/migrate";
+import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
 import { version } from "./version";
 
@@ -22,7 +23,7 @@ const migrations = runMigrations(db, migrationsDir);
 const provider = createProvider(config, getAnthropicApiKey());
 const chat: ChatFn = (request) => provider.complete(request);
 
-const app = createApp(db, chat);
+const app = createApp(db, chat, createMcpRunner());
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Raider Core v${version} läuft auf http://localhost:${info.port}`);

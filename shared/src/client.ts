@@ -1,16 +1,24 @@
 import type {
   Agent,
   AgentListResponse,
+  CallToolRequest,
   ChatRequest,
   ChatResponse,
   CreateAgentRequest,
+  CreateMcpServerRequest,
   CreateSessionRequest,
+  McpServer,
+  McpServerListResponse,
+  McpTestResponse,
   PostMessageRequest,
   SearchResponse,
   Session,
   SessionListResponse,
   SessionMessagesResponse,
+  ToolCall,
+  ToolCallListResponse,
   UpdateAgentRequest,
+  UpdateMcpServerRequest,
 } from "./index";
 
 /**
@@ -58,6 +66,13 @@ export interface RaiderClient {
   updateAgent(id: number, patch: UpdateAgentRequest): Promise<Agent>;
   deleteAgent(id: number): Promise<{ deleted: boolean }>;
   duplicateAgent(id: number): Promise<Agent>;
+  createMcpServer(input: CreateMcpServerRequest): Promise<McpServer>;
+  listMcpServers(): Promise<McpServerListResponse>;
+  updateMcpServer(id: number, patch: UpdateMcpServerRequest): Promise<McpServer>;
+  deleteMcpServer(id: number): Promise<{ deleted: boolean }>;
+  testMcpServer(id: number): Promise<McpTestResponse>;
+  callTool(serverId: number, tool: string, input: CallToolRequest): Promise<ToolCall>;
+  listToolCalls(): Promise<ToolCallListResponse>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -83,5 +98,20 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<{ deleted: boolean }>(`${base}/agents/${id}`, jsonInit("DELETE", {})),
     duplicateAgent: (id) =>
       requestJson<Agent>(`${base}/agents/${id}/duplicate`, jsonInit("POST", {})),
+    createMcpServer: (input) =>
+      requestJson<McpServer>(`${base}/mcp/servers`, jsonInit("POST", input)),
+    listMcpServers: () => requestJson<McpServerListResponse>(`${base}/mcp/servers`),
+    updateMcpServer: (id, patch) =>
+      requestJson<McpServer>(`${base}/mcp/servers/${id}`, jsonInit("PATCH", patch)),
+    deleteMcpServer: (id) =>
+      requestJson<{ deleted: boolean }>(`${base}/mcp/servers/${id}`, jsonInit("DELETE", {})),
+    testMcpServer: (id) =>
+      requestJson<McpTestResponse>(`${base}/mcp/servers/${id}/test`, jsonInit("POST", {})),
+    callTool: (serverId, tool, input) =>
+      requestJson<ToolCall>(
+        `${base}/mcp/servers/${serverId}/tools/${encodeURIComponent(tool)}/call`,
+        jsonInit("POST", input),
+      ),
+    listToolCalls: () => requestJson<ToolCallListResponse>(`${base}/tool-calls`),
   };
 }

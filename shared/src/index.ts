@@ -186,3 +186,84 @@ export interface SearchResponse {
   query: string;
   hits: SearchHit[];
 }
+
+/**
+ * MCP: externe Werkzeugserver. Server per stdio (Befehl) oder HTTP (URL);
+ * an-/abschaltbar; Werkzeugaufrufe brauchen eine Freigabe.
+ */
+
+export type McpServerType = "stdio" | "http";
+
+/** Ein konfigurierter MCP-Server. Env-Werte sind in API-Antworten geschwärzt. */
+export interface McpServer {
+  id: number;
+  name: string;
+  type: McpServerType;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: Record<string, string>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMcpServerRequest {
+  name: string;
+  type: McpServerType;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface UpdateMcpServerRequest {
+  name?: string;
+  type?: McpServerType;
+  command?: string | null;
+  args?: string[];
+  url?: string | null;
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface McpServerListResponse {
+  servers: McpServer[];
+}
+
+/** Ein vom Server angebotenes Werkzeug. */
+export interface McpTool {
+  name: string;
+  description: string | null;
+  inputSchema?: unknown;
+}
+
+/** Antwort des Verbindungstests. */
+export interface McpTestResponse {
+  serverId: number;
+  tools: McpTool[];
+}
+
+/** Ein protokollierter Werkzeugaufruf (jeder Aufruf ist einsehbar). */
+export interface ToolCall {
+  id: number;
+  serverId: number | null;
+  toolName: string;
+  arguments: unknown;
+  result: string;
+  isError: boolean;
+  /** Wer den Aufruf freigegeben hat. */
+  approvedBy: string | null;
+  createdAt: string;
+}
+
+/** Body für einen Werkzeugaufruf. Ohne `approvedBy` verlangt der Core eine Freigabe. */
+export interface CallToolRequest {
+  arguments?: Record<string, unknown>;
+  approvedBy?: string;
+}
+
+export interface ToolCallListResponse {
+  toolCalls: ToolCall[];
+}

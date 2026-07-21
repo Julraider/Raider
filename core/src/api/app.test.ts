@@ -3,14 +3,17 @@ import { fileURLToPath } from "node:url";
 import type {
   Agent,
   ChatRequest,
+  McpServer,
   SearchResponse,
   Session,
   SessionMessagesResponse,
   StatusResponse,
+  ToolCall,
 } from "@raider/shared";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../db/index";
 import { runMigrations } from "../db/migrate";
+import type { McpRunner } from "../mcp/types";
 import { type ChatFn, createApp } from "./app";
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations");
@@ -24,10 +27,19 @@ const stubChat: ChatFn = async () => ({
   usage: { inputTokens: 5, outputTokens: 3 },
 });
 
-function setupApp(chat: ChatFn = stubChat) {
+/** Ersetzt den echten MCP-Client in Tests. */
+const stubMcp: McpRunner = {
+  listTools: async () => [{ name: "echo", description: "Echo", inputSchema: {} }],
+  callTool: async (_config, tool, args) => ({
+    content: `${tool}(${JSON.stringify(args)})`,
+    isError: false,
+  }),
+};
+
+function setupApp(chat: ChatFn = stubChat, mcp: McpRunner = stubMcp) {
   const db = openDatabase(":memory:");
   runMigrations(db, migrationsDir);
-  return createApp(db, chat);
+  return createApp(db, chat, mcp);
 }
 
 const json = (body: unknown): RequestInit => ({
@@ -45,8 +57,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(2);
-    expect(body.database.migrations.latest).toBe("002_agents.sql");
+    expect(body.database.migrations.applied).toBe(3);
+    expect(body.database.migrations.latest).toBe("003_mcp.sql");
   });
 });
 
@@ -131,5 +143,65 @@ describe("Agenten", () => {
     const request = captured as unknown as ChatRequest;
     expect(request.system).toBe("Du bist knapp.");
     expect(request.model).toBe("claude-haiku-4-5");
+  });
+});
+
+describe("MCP", () => {
+  const stdioServer = json({
+    name: "echo",
+    type: "stdio",
+    command: "node",
+    env: { API_KEY: "geheim" },
+  });
+
+  it("legt einen Server an und schwärzt Secrets in der Liste", async () => {
+    const app = setupApp();
+    const created = await app.request("/mcp/servers", stdioServer);
+    expect(created.status).toBe(201);
+    const server = (await created.json()) as McpServer;
+    expect(server.env.API_KEY).toBe("••••••");
+
+    const list = await app.request("/mcp/servers");
+    const body = (await list.json()) as { servers: McpServer[] };
+    expect(body.servers[0]?.env.API_KEY).toBe("••••••");
+  });
+
+  it("testet die Verbindung und listet Werkzeuge auf", async () => {
+    const app = setupApp();
+    const created = await app.request("/mcp/servers", stdioServer);
+    const server = (await created.json()) as McpServer;
+
+    const res = await app.request(`/mcp/servers/${server.id}/test`, json({}));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tools: { name: string }[] };
+    expect(body.tools.map((t) => t.name)).toContain("echo");
+  });
+
+  it("verlangt eine Freigabe für einen Werkzeugaufruf", async () => {
+    const app = setupApp();
+    const created = await app.request("/mcp/servers", stdioServer);
+    const server = (await created.json()) as McpServer;
+
+    const denied = await app.request(`/mcp/servers/${server.id}/tools/echo/call`, json({}));
+    expect(denied.status).toBe(403);
+  });
+
+  it("führt einen freigegebenen Aufruf aus und protokolliert ihn", async () => {
+    const app = setupApp();
+    const created = await app.request("/mcp/servers", stdioServer);
+    const server = (await created.json()) as McpServer;
+
+    const call = await app.request(
+      `/mcp/servers/${server.id}/tools/echo/call`,
+      json({ arguments: { text: "Hi" }, approvedBy: "test-user" }),
+    );
+    expect(call.status).toBe(200);
+    const record = (await call.json()) as ToolCall;
+    expect(record.approvedBy).toBe("test-user");
+    expect(record.result).toContain("echo");
+
+    const audit = await app.request("/tool-calls");
+    const body = (await audit.json()) as { toolCalls: ToolCall[] };
+    expect(body.toolCalls).toHaveLength(1);
   });
 });
