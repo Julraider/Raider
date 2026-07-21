@@ -25,6 +25,12 @@ export interface MemoryLimits {
   user: number;
 }
 
+/** Einstellungen des Telegram-Gateways (der Token wird separat gelesen). */
+export interface TelegramSettings {
+  /** Gültigkeitsdauer eines Kopplungs-Codes in Sekunden. */
+  pairingTtlSeconds: number;
+}
+
 /** Laufzeit-Konfiguration des Cores, aus Umgebungsvariablen abgeleitet. */
 export interface CoreConfig {
   /** Sichtbarer Datenordner, Standard ~/Raider (siehe Spec). */
@@ -40,6 +46,7 @@ export interface CoreConfig {
   memory: MemoryLimits;
   /** Ordner für Skill-Dateien. */
   skillsDir: string;
+  telegram: TelegramSettings;
 }
 
 const DEFAULT_PORT = 4179;
@@ -50,6 +57,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL = "llama3.2";
 const DEFAULT_MAX_TOKENS = 2048;
+const DEFAULT_TELEGRAM_PAIRING_TTL = 600;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
   const dataDir = env.RAIDER_DATA_DIR ?? join(homedir(), "Raider");
@@ -81,6 +89,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
         : DEFAULT_MEMORY_USER_LIMIT,
     },
     skillsDir: env.RAIDER_SKILLS_DIR ?? join(dataDir, "skills"),
+    telegram: {
+      pairingTtlSeconds: env.RAIDER_TELEGRAM_PAIRING_TTL
+        ? Number(env.RAIDER_TELEGRAM_PAIRING_TTL)
+        : DEFAULT_TELEGRAM_PAIRING_TTL,
+    },
   };
 }
 
@@ -102,4 +115,14 @@ function resolveProvider(env: NodeJS.ProcessEnv): ProviderName {
  */
 export function getAnthropicApiKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
   return env.ANTHROPIC_API_KEY;
+}
+
+/**
+ * Liest den Telegram-Bot-Token aus der Umgebung. Wie der API-Key bewusst
+ * getrennt von loadConfig — dieser Wert darf niemals in Logs oder API-Antworten
+ * ausgegeben werden.
+ */
+export function getTelegramToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const token = env.RAIDER_TELEGRAM_TOKEN?.trim();
+  return token ? token : undefined;
 }

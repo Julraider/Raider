@@ -29,6 +29,9 @@ import type {
   SkillExportResponse,
   SkillListResponse,
   SkillWithContent,
+  TelegramChatListResponse,
+  TelegramPairingCode,
+  TelegramStatusResponse,
   ToolCall,
   ToolCallListResponse,
   UpdateAgentRequest,
@@ -107,6 +110,10 @@ export interface RaiderClient {
   listAgentSkills(agentId: number): Promise<SkillListResponse>;
   assignSkill(agentId: number, skillId: number): Promise<{ assigned: boolean }>;
   unassignSkill(agentId: number, skillId: number): Promise<{ unassigned: boolean }>;
+  telegramStatus(): Promise<TelegramStatusResponse>;
+  createPairingCode(): Promise<TelegramPairingCode>;
+  listTelegramChats(): Promise<TelegramChatListResponse>;
+  unpairTelegramChat(chatId: number): Promise<{ unpaired: boolean }>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -184,6 +191,15 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
     unassignSkill: (agentId, skillId) =>
       requestJson<{ unassigned: boolean }>(
         `${base}/agents/${agentId}/skills/${skillId}`,
+        jsonInit("DELETE", {}),
+      ),
+    telegramStatus: () => requestJson<TelegramStatusResponse>(`${base}/telegram/status`),
+    createPairingCode: () =>
+      requestJson<TelegramPairingCode>(`${base}/telegram/pairing-codes`, jsonInit("POST", {})),
+    listTelegramChats: () => requestJson<TelegramChatListResponse>(`${base}/telegram/chats`),
+    unpairTelegramChat: (chatId) =>
+      requestJson<{ unpaired: boolean }>(
+        `${base}/telegram/chats/${chatId}`,
         jsonInit("DELETE", {}),
       ),
   };

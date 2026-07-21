@@ -1,9 +1,7 @@
 import type {
   AgentListResponse,
   CallToolRequest,
-  ChatMessage,
   ChatRequest,
-  ChatResponse,
   CreateAgentRequest,
   CreateMcpServerRequest,
   CreateMemoryRequest,
@@ -25,6 +23,8 @@ import type {
   SkillListResponse,
   SkillProposal,
   StatusResponse,
+  TelegramChatListResponse,
+  TelegramStatusResponse,
   ToolCallListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
@@ -33,12 +33,19 @@ import type {
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import { type ChatFn, runSessionTurn } from "../chat/turn";
 import type { MemoryLimits } from "../config";
 
 /** Konfiguration, die die API zur Laufzeit braucht. */
 export interface AppConfig {
   memoryLimits: MemoryLimits;
   skillsDir: string;
+  telegram: {
+    /** Gültigkeitsdauer eines Kopplungs-Codes in Sekunden. */
+    pairingTtlSeconds: number;
+    /** Ob ein Bot-Token gesetzt ist (der Token selbst bleibt im Core). */
+    enabled: boolean;
+  };
 }
 
 import {
@@ -77,7 +84,6 @@ import {
   resolvePendingWrite,
 } from "../db/pending";
 import {
-  addMessage,
   createSession,
   getMessages,
   getSession,
@@ -85,7 +91,6 @@ import {
   searchMessages,
 } from "../db/repository";
 import {
-  activeAgentSkillContents,
   assignSkill,
   createSkill,
   deleteSkill,
@@ -98,12 +103,12 @@ import {
   unassignSkill,
   updateSkill,
 } from "../db/skills";
+import { chatCount, createPairingCode, listChats, unpairChat } from "../db/telegram";
 import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
 import { version } from "../version";
 
-/** Ruft ein Modell auf und liefert die Antwort im internen Format. */
-export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
+export type { ChatFn } from "../chat/turn";
 
 /**
  * Baut die lokale API. Bewusst als Fabrik: Tests bekommen so eine App gegen
@@ -179,44 +184,12 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     const content = body?.content?.trim();
     if (!content) return c.json({ error: "Feld 'content' darf nicht leer sein." }, 400);
 
-    // Nutzer-Nachricht sofort speichern — sie überlebt auch einen Anbieterfehler.
-    addMessage(db, { sessionId: id, role: "user", content });
-
-    const history: ChatMessage[] = getMessages(db, id).map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
-
-    // Agent der Sitzung prägt Systemprompt und Modell; das Kerngedächtnis
-    // (Ebene 1) kommt bei jeder Nachricht mit in den Kontext.
-    const agent = session.agentId !== null ? getAgent(db, session.agentId) : undefined;
-    const agentPrompt = agent && agent.systemPrompt.trim() !== "" ? agent.systemPrompt : undefined;
-    const memory = buildMemoryContext(db);
-    // Aktive, dem Agenten zugewiesene Skills kommen als Kontext dazu.
-    const skills = agent
-      ? activeAgentSkillContents(db, agent.id)
-          .map((skill) => `## Skill: ${skill.name}\n${skill.content}`)
-          .join("\n\n") || undefined
-      : undefined;
-    const systemParts = [agentPrompt, memory, skills].filter((part): part is string =>
-      Boolean(part),
-    );
-    const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
-    const model = body?.model ?? agent?.model ?? undefined;
-
     try {
-      const response = await chat({
-        messages: history,
-        ...(system ? { system } : {}),
-        ...(model ? { model } : {}),
+      // Agent-Prompt, Kerngedächtnis und Skills baut runSessionTurn zusammen —
+      // dieselbe Logik nutzt auch das Telegram-Gateway.
+      const response = await runSessionTurn(db, chat, session, content, {
+        ...(body?.model ? { model: body.model } : {}),
         ...(body?.maxTokens ? { maxTokens: body.maxTokens } : {}),
-      });
-      addMessage(db, {
-        sessionId: id,
-        role: "assistant",
-        content: response.content,
-        tokensIn: response.usage.inputTokens,
-        tokensOut: response.usage.outputTokens,
       });
       return c.json(response);
     } catch (error) {
@@ -592,21 +565,34 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     return c.json({ unassigned: true });
   });
 
-  return app;
-}
+  // --- Telegram-Gateway (Verwaltung; der Bot-Token bleibt im Core) ---
 
-/** Baut den Kontextblock aus dem Kerngedächtnis (oder undefined, wenn leer). */
-function buildMemoryContext(db: Db): string | undefined {
-  const user = listMemory(db, "user");
-  const agentNotes = listMemory(db, "agent");
-  const parts: string[] = [];
-  if (user.length > 0) {
-    parts.push(`## Nutzerprofil\n${user.map((entry) => `- ${entry.content}`).join("\n")}`);
-  }
-  if (agentNotes.length > 0) {
-    parts.push(`## Notizen\n${agentNotes.map((entry) => `- ${entry.content}`).join("\n")}`);
-  }
-  return parts.length > 0 ? parts.join("\n\n") : undefined;
+  app.get("/telegram/status", (c) => {
+    const body: TelegramStatusResponse = {
+      enabled: config.telegram.enabled,
+      chatCount: chatCount(db),
+    };
+    return c.json(body);
+  });
+
+  app.post("/telegram/pairing-codes", (c) => {
+    const code = createPairingCode(db, config.telegram.pairingTtlSeconds);
+    return c.json(code, 201);
+  });
+
+  app.get("/telegram/chats", (c) => {
+    const body: TelegramChatListResponse = { chats: listChats(db) };
+    return c.json(body);
+  });
+
+  app.delete("/telegram/chats/:chatId", (c) => {
+    const chatId = Number(c.req.param("chatId"));
+    if (!Number.isInteger(chatId)) return c.json({ error: "Ungültige Chat-ID." }, 400);
+    if (!unpairChat(db, chatId)) return c.json({ error: "Chat nicht gekoppelt." }, 404);
+    return c.json({ unpaired: true });
+  });
+
+  return app;
 }
 
 /** Fehlermeldung aus einem unbekannten Fehler ziehen. */

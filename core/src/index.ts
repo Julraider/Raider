@@ -2,12 +2,15 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { type ChatFn, createApp } from "./api/app";
-import { getAnthropicApiKey, loadConfig } from "./config";
+import { createApp } from "./api/app";
+import type { ChatFn } from "./chat/turn";
+import { getAnthropicApiKey, getTelegramToken, loadConfig } from "./config";
 import { openDatabase } from "./db/index";
 import { runMigrations } from "./db/migrate";
 import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
+import { createTelegramApi } from "./telegram/api";
+import { createTelegramGateway } from "./telegram/gateway";
 import { version } from "./version";
 
 const config = loadConfig();
@@ -24,16 +27,32 @@ const migrations = runMigrations(db, migrationsDir);
 const provider = createProvider(config, getAnthropicApiKey());
 const chat: ChatFn = (request) => provider.complete(request);
 
+// Telegram-Token separat lesen (Geheimnis) — nur seine Existenz fließt in die App.
+const telegramToken = getTelegramToken();
+
 const app = createApp(db, chat, createMcpRunner(), {
   memoryLimits: config.memory,
   skillsDir: config.skillsDir,
+  telegram: {
+    pairingTtlSeconds: config.telegram.pairingTtlSeconds,
+    enabled: telegramToken !== undefined,
+  },
 });
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Raider Core v${version} läuft auf http://localhost:${info.port}`);
   console.log(`Datenbank: ${config.databasePath} (${migrations.applied} Migrationen angewendet)`);
   console.log(`Anbieter: ${describeProvider()}`);
+  console.log(
+    `Telegram: ${telegramToken ? "aktiv (koppeln: npm run telegram -- pair)" : "aus (RAIDER_TELEGRAM_TOKEN fehlt)"}`,
+  );
 });
+
+// Gateway nur starten, wenn ein Token da ist; der Token verlässt den Core nie.
+if (telegramToken) {
+  const gateway = createTelegramGateway({ db, api: createTelegramApi(telegramToken), chat });
+  gateway.start();
+}
 
 /** Kurze Beschreibung des aktiven Anbieters fürs Log (ohne Geheimnisse). */
 function describeProvider(): string {

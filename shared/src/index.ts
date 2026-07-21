@@ -402,3 +402,34 @@ export interface SkillExportResponse {
 export interface SkillListResponse {
   skills: Skill[];
 }
+
+/**
+ * Telegram-Gateway (Schritt 11): Raider vom Handy aus erreichen. Fremde Chats
+ * müssen sich erst per Einmal-Code koppeln, bevor Nachrichten ans Modell gehen.
+ */
+
+/** Ein gekoppelter Telegram-Chat, verknüpft mit einer Sitzung. */
+export interface TelegramChat {
+  chatId: number;
+  sessionId: number;
+  label: string | null;
+  pairedAt: string;
+}
+
+/** Ein Einmal-Code zum Koppeln eines Chats (der Code selbst ist ein Geheimnis). */
+export interface TelegramPairingCode {
+  code: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+}
+
+/** Zustand des Gateways — ob ein Bot-Token gesetzt ist (ohne den Token selbst). */
+export interface TelegramStatusResponse {
+  enabled: boolean;
+  chatCount: number;
+}
+
+export interface TelegramChatListResponse {
+  chats: TelegramChat[];
+}

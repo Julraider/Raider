@@ -49,7 +49,11 @@ function setupApp(chat: ChatFn = stubChat, mcp: McpRunner = stubMcp, limits = de
   const db = openDatabase(":memory:");
   runMigrations(db, migrationsDir);
   const skillsDir = mkdtempSync(join(tmpdir(), "raider-skills-"));
-  return createApp(db, chat, mcp, { memoryLimits: limits, skillsDir });
+  return createApp(db, chat, mcp, {
+    memoryLimits: limits,
+    skillsDir,
+    telegram: { pairingTtlSeconds: 600, enabled: false },
+  });
 }
 
 const json = (body: unknown): RequestInit => ({
@@ -67,8 +71,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(6);
-    expect(body.database.migrations.latest).toBe("006_skills.sql");
+    expect(body.database.migrations.applied).toBe(7);
+    expect(body.database.migrations.latest).toBe("007_telegram.sql");
   });
 });
 
@@ -428,5 +432,32 @@ describe("Skills", () => {
     const request = captured as unknown as ChatRequest;
     expect(request.system).toContain("## Skill: Piraten-Stil");
     expect(request.system).toContain("wie ein Pirat");
+  });
+});
+
+describe("Telegram-Verwaltung", () => {
+  it("meldet den Gateway-Status (aus, ohne Token)", async () => {
+    const app = setupApp();
+    const status = (await (await app.request("/telegram/status")).json()) as {
+      enabled: boolean;
+      chatCount: number;
+    };
+    expect(status.enabled).toBe(false);
+    expect(status.chatCount).toBe(0);
+  });
+
+  it("erzeugt einen Kopplungs-Code mit Ablaufzeit", async () => {
+    const app = setupApp();
+    const res = await app.request("/telegram/pairing-codes", json({}));
+    expect(res.status).toBe(201);
+    const code = (await res.json()) as { code: string; expiresAt: string };
+    expect(code.code).toMatch(/^[A-Z0-9]{6}$/);
+    expect(code.expiresAt).toBeTruthy();
+  });
+
+  it("liefert 404 beim Entkoppeln eines unbekannten Chats", async () => {
+    const app = setupApp();
+    const res = await app.request("/telegram/chats/999", { method: "DELETE" });
+    expect(res.status).toBe(404);
   });
 });

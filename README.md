@@ -32,6 +32,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run memory` | Kerngedächtnis ansehen/bearbeiten (`-- add`, `-- edit`, `-- del`) |
 | `npm run inbox` | Freigabe-Posteingang (`-- propose`, `-- approve <id>`, `-- reject <id>`) |
 | `npm run skills` | Skills verwalten (`-- new`, `-- show <id>`, `-- on/off <id>`, `-- assign <agentId> <skillId>`, `-- del <id>`) |
+| `npm run telegram` | Telegram-Gateway (`-- pair` Code erzeugen, `-- unpair <chatId>`) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -51,6 +52,8 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_OLLAMA_URL` | `http://localhost:11434` | Basis-URL des lokalen Ollama-Servers |
 | `RAIDER_OLLAMA_MODEL` | `llama3.2` | Ollama-Standardmodell |
 | `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
+| `RAIDER_TELEGRAM_TOKEN` | — | Bot-Token von @BotFather; nur serverseitig gelesen, nie geloggt |
+| `RAIDER_TELEGRAM_PAIRING_TTL` | `600` | Gültigkeitsdauer eines Kopplungs-Codes (Sekunden) |
 
 ## Anbieter
 
@@ -59,6 +62,23 @@ Zwei Anbieter hinter derselben internen Schnittstelle:
 - **Ollama** — lokale Modelle, kostenlos, kein Key. Ollama installieren
   (`ollama.com`), ein Modell laden (`ollama pull llama3.2`), dann startet der
   Core automatisch damit, solange kein Anthropic-Key gesetzt ist.
+
+## Telegram
+
+Raider vom Handy aus erreichen — abgesichert durch eine Kopplung, damit nicht
+jeder Fremde, der den Bot findet, mitreden kann:
+
+1. Bei Telegram bei **@BotFather** einen Bot anlegen und den Token als
+   `RAIDER_TELEGRAM_TOKEN` in die `.env` schreiben. Der Token bleibt im Core und
+   wird nie geloggt oder über die API ausgegeben.
+2. `npm run telegram -- pair` erzeugt einen Einmal-Code (Standard 10 Min gültig).
+3. Im Chat mit dem Bot `/pair <Code>` schicken → gekoppelt. Erst ab jetzt gehen
+   Nachrichten ans Modell; ungekoppelte Chats werden höflich abgewiesen und
+   **nie** weitergereicht. `npm run telegram -- unpair <chatId>` löst die
+   Kopplung wieder.
+
+Das Gateway nutzt die Telegram-Bot-API direkt (kein Zusatzpaket) und teilt sich
+mit der HTTP-Route dieselbe Dialog-Logik (Agent-Prompt + Kerngedächtnis + Skills).
 
 ## API
 
@@ -82,6 +102,9 @@ GET/PATCH/DELETE /skills/:id                Skill inkl. Inhalt lesen, ändern, l
 GET  /skills/:id/export                     Skill als agentskills.io-Markdown exportieren
 POST /skills/import                         Skill aus Markdown importieren
 GET/POST/DELETE /agents/:id/skills[/:skillId]   Skills einem Agenten zuweisen/entziehen
+GET  /telegram/status                       Gateway aktiv? + Anzahl gekoppelter Chats
+POST /telegram/pairing-codes                Einmal-Code zum Koppeln erzeugen
+GET/DELETE /telegram/chats[/:chatId]        Gekoppelte Chats auflisten / entkoppeln
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)
