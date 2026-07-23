@@ -1,15 +1,32 @@
 import { createRaiderClient } from "@raider/shared";
 import { useMemo, useState } from "react";
 import { coreBaseUrl } from "./coreUrl";
+import { AgentsPanel } from "./panels/AgentsPanel";
 import { ChatPanel } from "./panels/ChatPanel";
 import { InboxPanel } from "./panels/InboxPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
 import { OpsPanel } from "./panels/OpsPanel";
+import { SearchPanel } from "./panels/SearchPanel";
+import { SettingsPanel } from "./panels/SettingsPanel";
 import { SkillsPanel } from "./panels/SkillsPanel";
 import { TasksPanel } from "./panels/TasksPanel";
+import { TelegramPanel } from "./panels/TelegramPanel";
+import { ToolsPanel } from "./panels/ToolsPanel";
 import { ui } from "./ui";
 
-const TABS = ["Chat", "Gedächtnis", "Posteingang", "Skills", "Aufgaben", "Betrieb"] as const;
+const TABS = [
+  "Chat",
+  "Agenten",
+  "Werkzeuge",
+  "Gedächtnis",
+  "Skills",
+  "Posteingang",
+  "Aufgaben",
+  "Suche",
+  "Telegram",
+  "Betrieb",
+  "Einstellungen",
+] as const;
 type Tab = (typeof TABS)[number];
 
 /** Anfangs-Reiter, optional per `?tab=…` vorgewählt (Deep-Link). */
@@ -44,11 +61,16 @@ export function App() {
       </nav>
 
       {tab === "Chat" && <ChatPanel client={client} />}
+      {tab === "Agenten" && <AgentsPanel client={client} />}
+      {tab === "Werkzeuge" && <ToolsPanel client={client} />}
       {tab === "Gedächtnis" && <MemoryPanel client={client} />}
-      {tab === "Posteingang" && <InboxPanel client={client} />}
       {tab === "Skills" && <SkillsPanel client={client} />}
+      {tab === "Posteingang" && <InboxPanel client={client} />}
       {tab === "Aufgaben" && <TasksPanel client={client} />}
+      {tab === "Suche" && <SearchPanel client={client} />}
+      {tab === "Telegram" && <TelegramPanel client={client} />}
       {tab === "Betrieb" && <OpsPanel client={client} />}
+      {tab === "Einstellungen" && <SettingsPanel client={client} />}
     </div>
   );
 }

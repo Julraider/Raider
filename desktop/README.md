@@ -4,8 +4,14 @@ Electron-Fenster gegen **denselben Core** wie alle anderen Clients. Der Renderer
 (React) ist bewusst dumm: anzeigen und die lokale API rufen — die Logik (Verlauf,
 Modellaufruf, Freigabe, Zeitplan, Betrieb) steckt im Core.
 
-Reiter: **Chat · Gedächtnis · Posteingang · Skills · Aufgaben · Betrieb.** Ein
-Reiter lässt sich per `?tab=<Name>` direkt vorwählen (Deep-Link).
+Reiter: **Chat · Agenten · Werkzeuge · Gedächtnis · Skills · Posteingang ·
+Aufgaben · Suche · Telegram · Betrieb · Einstellungen.** Damit ist alles, was der
+Core kann, auch im Fenster bedienbar. Ein Reiter lässt sich per `?tab=<Name>`
+direkt vorwählen (Deep-Link).
+
+Der Reiter **Einstellungen** zeigt die Konfiguration nur an und erklärt die
+Umgebungsvariablen — der API-Key wird bewusst nie in der Oberfläche gespeichert
+oder angezeigt.
 
 ## Aufbau
 
