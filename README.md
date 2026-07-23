@@ -4,6 +4,10 @@ Persönlicher AI-Assistent. Ein **headless Core** läuft als eigener Prozess; al
 Clients (Electron, CLI, Telegram-Gateway, Scheduler) reden ausschließlich über die
 lokale API des Cores.
 
+> **Neu hier? → [SCHNELLSTART.md](SCHNELLSTART.md).** Kurzfassung: Node.js
+> installieren, dann Doppelklick auf `Raider starten (Windows).bat` bzw.
+> `Raider starten (Mac).command` — oder `npm install && npm start`.
+
 Dies ist **Schritt 1 der Baureihenfolge — das Skelett**: Repo, TypeScript,
 SQLite-Anbindung mit Migrationsmechanismus, und ein Core, der auf `GET /status`
 antwortet. Provider, Agenten, Oberfläche und MCP kommen in späteren Schritten.

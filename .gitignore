@@ -12,6 +12,7 @@ logs/
 # Local data & secrets — NEVER commit these
 .env
 .env.*
+!.env.example
 .keys
 *.db
 *.db-shm

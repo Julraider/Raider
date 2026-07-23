@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd-Vorlage, damit der Raider-Core auf dem Mac dauerhaft läuft.
+
+  Einrichten (macOS):
+    1. <PFAD-ZU-RAIDER> unten anpassen (dreimal). Pfad zu npm prüfen mit:  which npm
+    2. Kopieren:  cp deploy/com.raider.core.plist ~/Library/LaunchAgents/
+    3. Laden:     launchctl load ~/Library/LaunchAgents/com.raider.core.plist
+    4. Stoppen:   launchctl unload ~/Library/LaunchAgents/com.raider.core.plist
+    Logs liegen dann unter <PFAD-ZU-RAIDER>/raider-core.log.
+
+  Startet nur den Core (headless). Das Fenster öffnest du bei Bedarf selbst.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.raider.core</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/npm</string>
+    <string>run</string>
+    <string>dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string><PFAD-ZU-RAIDER></string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string><PFAD-ZU-RAIDER>/raider-core.log</string>
+  <key>StandardErrorPath</key>
+  <string><PFAD-ZU-RAIDER>/raider-core.log</string>
+</dict>
+</plist>

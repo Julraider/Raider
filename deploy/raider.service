@@ -1,0 +1,30 @@
+# systemd-Vorlage, damit der Raider-Core dauerhaft (auch nach Neustart) läuft.
+#
+# Einrichten (Linux):
+#   1. <BENUTZER> und <PFAD-ZU-RAIDER> unten anpassen.
+#   2. Kopieren:  sudo cp deploy/raider.service /etc/systemd/system/raider.service
+#   3. Aktivieren: sudo systemctl enable --now raider
+#   4. Läuft es?  systemctl status raider    ·    Logs: journalctl -u raider -f
+#
+# Dieser Dienst startet nur den Core (headless). Das Fenster öffnest du bei
+# Bedarf weiterhin selbst; Telegram/CLI erreichen den Core direkt.
+
+[Unit]
+Description=Raider Core (lokaler KI-Assistent)
+After=network.target
+
+[Service]
+Type=simple
+User=<BENUTZER>
+WorkingDirectory=<PFAD-ZU-RAIDER>
+# Bei Bedarf Umgebungsvariablen aus einer Datei laden (API-Key etc.):
+EnvironmentFile=-<PFAD-ZU-RAIDER>/.env
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=5
+# Sauberes Herunterfahren: der Core macht bei SIGTERM einen WAL-Checkpoint.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
