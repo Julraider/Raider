@@ -1,8 +1,11 @@
 # @raider/desktop
 
-Electron-Fenster mit Chat gegen **denselben Core** wie alle anderen Clients.
-Der Renderer (React) ist bewusst dumm: anzeigen und die lokale API rufen — die
-Logik (Verlauf, Modellaufruf, Speicherung) steckt im Core.
+Electron-Fenster gegen **denselben Core** wie alle anderen Clients. Der Renderer
+(React) ist bewusst dumm: anzeigen und die lokale API rufen — die Logik (Verlauf,
+Modellaufruf, Freigabe, Zeitplan, Betrieb) steckt im Core.
+
+Reiter: **Chat · Gedächtnis · Posteingang · Skills · Aufgaben · Betrieb.** Ein
+Reiter lässt sich per `?tab=<Name>` direkt vorwählen (Deep-Link).
 
 ## Aufbau
 
@@ -10,7 +13,9 @@ Logik (Verlauf, Modellaufruf, Speicherung) steckt im Core.
 |---|---|
 | `electron/main.cjs` | Hauptprozess: öffnet das Fenster, lädt den Renderer |
 | `electron/preload.cjs` | reicht dem Renderer nur die Core-Basis-URL herein |
-| `src/` | React-Chat, nutzt den gemeinsamen Client aus `@raider/shared` |
+| `src/App.tsx` | Reiter-Hülle |
+| `src/panels/` | ein Panel je Reiter, nutzt den gemeinsamen Client aus `@raider/shared` |
+| `src/ui.ts` | gemeinsame Stile und kleine Helfer |
 
 ## Starten (auf deinem Rechner mit Bildschirm)
 
@@ -32,7 +37,8 @@ VITE_DEV_SERVER_URL=http://localhost:5173 npm run start -w @raider/desktop
 
 Für eine echte Modell-Antwort muss `ANTHROPIC_API_KEY` gesetzt sein.
 
-> Hinweis: In der headless-Cloud-Umgebung, in der dieses Projekt gebaut wurde,
-> lässt sich kein Fenster öffnen (kein Bildschirm, Electron-Binary gesperrt).
-> Verifiziert wurden dort der Renderer-Build, Typecheck und der gemeinsame
-> Client; das Fenster selbst startet auf einem Rechner mit Oberfläche.
+> Hinweis: In der headless-Cloud-Umgebung lässt sich das Electron-Fenster nicht
+> öffnen. Verifiziert wurden dort Build und Typecheck sowie die gerenderte
+> Oberfläche selbst — der gebaute Renderer wurde in einem echten (headless)
+> Chromium gegen einen laufenden Core geladen und alle Reiter geprüft. Das
+> Electron-Fenster startet auf einem Rechner mit Oberfläche.

@@ -17,7 +17,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `core/` | `@raider/core` | Datenbank, Migrationen, lokale API (`/status`) |
 | `shared/` | `@raider/shared` | Gemeinsame Typen für alle Clients |
 | `cli/` | `@raider/cli` | Platzhalter (Schritt 2/3) |
-| `desktop/` | `@raider/desktop` | Electron-Fenster (React) gegen denselben Core |
+| `desktop/` | `@raider/desktop` | Electron-Fenster (React): Reiter Chat, Gedächtnis, Posteingang, Skills, Aufgaben, Betrieb |
 
 ## Befehle
 
