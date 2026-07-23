@@ -491,3 +491,33 @@ export interface EmergencyStopState {
   engagedAt: string | null;
   reason: string | null;
 }
+
+/**
+ * Hintergrund-Review (Schritt 13): Raider sieht sich die letzte Aktivität an und
+ * SCHLÄGT Verbesserungen vor (Merk-Einträge, Skills). Alles geht in den
+ * Freigabe-Posteingang — nichts wird automatisch angewendet.
+ */
+
+/** Ein protokollierter Review-Lauf. */
+export interface ReviewRun {
+  id: number;
+  ranAt: string;
+  /** Zahl der neu erzeugten Vorschläge. */
+  created: number;
+  /** Zahl der übersprungenen (Duplikate o. Ä.). */
+  skipped: number;
+  note: string | null;
+}
+
+/** Ergebnis eines Review-Laufs. */
+export interface ReviewSummary {
+  created: number;
+  skipped: number;
+  note: string | null;
+  /** Kurzbeschreibungen der neu erzeugten Vorschläge (für die Anzeige). */
+  proposals: string[];
+}
+
+export interface ReviewRunListResponse {
+  runs: ReviewRun[];
+}

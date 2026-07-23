@@ -35,6 +35,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run telegram` | Telegram-Gateway (`-- pair` Code erzeugen, `-- unpair <chatId>`) |
 | `npm run scheduler` | Geplante Aufgaben (`-- new`, `-- on/off <id>`, `-- run <id>`, `-- del <id>`) |
 | `npm run stop` | Not-Stopp aktivieren (`-- release` lösen, `-- status` prüfen) |
+| `npm run review` | Hintergrund-Review jetzt ausführen (`-- history` frühere Läufe) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -56,6 +57,8 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
 | `RAIDER_TELEGRAM_TOKEN` | — | Bot-Token von @BotFather; nur serverseitig gelesen, nie geloggt |
 | `RAIDER_TELEGRAM_PAIRING_TTL` | `600` | Gültigkeitsdauer eines Kopplungs-Codes (Sekunden) |
+
+| `RAIDER_REVIEW_INTERVAL` | `0` | Intervall des Hintergrund-Reviews in Sekunden; `0` = aus (manuell per `npm run review`) |
 
 > Hinweis: `RAIDER_PORT` nicht auf einen vom Browser gesperrten „bad port"
 > setzen (z. B. 4190) — das eingebaute `fetch` verweigert solche Ports. Der
@@ -103,6 +106,17 @@ Modell, und Werkzeugaufrufe (MCP) werden mit `423` abgewiesen. Manuelles Tippen
 am Rechner bleibt möglich, damit du prüfen und den Stopp wieder lösen kannst
 (`npm run stop -- release`).
 
+## Hintergrund-Review
+
+Der Review (`npm run review`) sieht sich die jüngste Aktivität an — letzte
+Gespräche, Kerngedächtnis, Skills — und **schlägt** daraus Merk-Einträge oder
+Skills vor. Nichts wird angewendet: alle Vorschläge landen im
+Freigabe-Posteingang (`npm run inbox`) und werden erst nach deiner Freigabe durch
+die übliche Prüfung (Limit, Duplikat, Prompt-Injektion) übernommen. Duplikate zu
+Vorhandenem werden übersprungen. Der automatische Hintergrund-Lauf ist
+standardmäßig aus (`RAIDER_REVIEW_INTERVAL=0`) und respektiert den Not-Stopp;
+manuell geht der Review jederzeit.
+
 ## API
 
 ```
@@ -132,6 +146,8 @@ POST/GET /scheduler/tasks                   Geplante Aufgaben anlegen/auflisten
 GET/PATCH/DELETE /scheduler/tasks/:id       Aufgabe lesen, ändern, löschen
 POST /scheduler/tasks/:id/run               Aufgabe jetzt ausführen (bei Not-Stopp gesperrt)
 GET/POST/DELETE /emergency-stop             Not-Stopp lesen / aktivieren / lösen
+POST /review/run                            Hintergrund-Review jetzt ausführen (schlägt vor)
+GET  /review/runs                           Protokoll der Review-Läufe
 POST /sessions/:id/messages      Dialog-Zug: Verlauf → Modell → beides speichern
 GET  /sessions/:id/messages      Verlauf einer Sitzung
 GET  /search?q=...               Volltextsuche über Nachrichten (FTS5)

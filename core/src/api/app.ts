@@ -18,6 +18,8 @@ import type {
   PendingWriteListResponse,
   PendingWriteStatus,
   PostMessageRequest,
+  ReviewRunListResponse,
+  ReviewSummary,
   RunTaskResponse,
   ScheduledTaskListResponse,
   SearchResponse,
@@ -96,6 +98,7 @@ import {
   listSessions,
   searchMessages,
 } from "../db/repository";
+import { listReviewRuns } from "../db/review";
 import {
   createScheduledTask,
   deleteScheduledTask,
@@ -120,6 +123,7 @@ import {
 import { chatCount, createPairingCode, listChats, unpairChat } from "../db/telegram";
 import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
+import { runReview } from "../review/reviewer";
 import { runScheduledTask } from "../scheduler/runner";
 import { version } from "../version";
 
@@ -701,6 +705,23 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
   app.delete("/emergency-stop", (c) => {
     const state: EmergencyStopState = releaseStop(db);
     return c.json(state);
+  });
+
+  // --- Hintergrund-Review (schlägt vor, wendet nie an) ---
+
+  app.post("/review/run", async (c) => {
+    if (isStopped(db)) return c.json({ error: "Not-Stopp aktiv — kein Review." }, 423);
+    try {
+      const summary: ReviewSummary = await runReview(db, chat);
+      return c.json(summary);
+    } catch (error) {
+      return chatErrorResponse(c, error);
+    }
+  });
+
+  app.get("/review/runs", (c) => {
+    const body: ReviewRunListResponse = { runs: listReviewRuns(db) };
+    return c.json(body);
   });
 
   return app;

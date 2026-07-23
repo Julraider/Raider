@@ -9,6 +9,7 @@ import { openDatabase } from "./db/index";
 import { runMigrations } from "./db/migrate";
 import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
+import { createReviewRunner } from "./review/reviewer";
 import { createScheduler } from "./scheduler/runner";
 import { createTelegramApi } from "./telegram/api";
 import { createTelegramGateway } from "./telegram/gateway";
@@ -47,6 +48,11 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(
     `Telegram: ${telegramToken ? "aktiv (koppeln: npm run telegram -- pair)" : "aus (RAIDER_TELEGRAM_TOKEN fehlt)"}`,
   );
+  const review =
+    config.reviewIntervalSeconds > 0
+      ? `alle ${config.reviewIntervalSeconds}s`
+      : "aus (RAIDER_REVIEW_INTERVAL=0) — manuell: npm run review";
+  console.log(`Hintergrund-Review: ${review}`);
 });
 
 // Gateway nur starten, wenn ein Token da ist; der Token verlässt den Core nie.
@@ -57,6 +63,11 @@ if (telegramToken) {
 
 // Scheduler läuft immer mit; er prüft vor jedem Lauf den Not-Stopp selbst.
 createScheduler({ db, chat }).start();
+
+// Hintergrund-Review nur bei gesetztem Intervall; prüft ebenfalls den Not-Stopp.
+if (config.reviewIntervalSeconds > 0) {
+  createReviewRunner(db, chat).start(config.reviewIntervalSeconds * 1000);
+}
 
 /** Kurze Beschreibung des aktiven Anbieters fürs Log (ohne Geheimnisse). */
 function describeProvider(): string {

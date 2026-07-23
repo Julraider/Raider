@@ -71,8 +71,8 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(8);
-    expect(body.database.migrations.latest).toBe("008_scheduler.sql");
+    expect(body.database.migrations.applied).toBe(9);
+    expect(body.database.migrations.latest).toBe("009_review.sql");
   });
 });
 
@@ -534,5 +534,41 @@ describe("Not-Stopp", () => {
 
     const runAgain = await app.request(`/scheduler/tasks/${task.id}/run`, json({}));
     expect(runAgain.status).toBe(200);
+  });
+});
+
+describe("Hintergrund-Review", () => {
+  const reviewChat: ChatFn = async () => ({
+    role: "assistant",
+    content: '{"memory":[{"store":"user","content":"Mag knappe Antworten"}],"skills":[]}',
+    model: "test-model",
+    stopReason: "end_turn",
+    usage: { inputTokens: 1, outputTokens: 1 },
+  });
+
+  it("erzeugt aus der Aktivität einen Vorschlag im Posteingang", async () => {
+    const app = setupApp(reviewChat);
+    // Etwas Aktivität anlegen, damit der Review etwas zu sehen hat.
+    const session = (await (await app.request("/sessions", json({ channel: "cli" }))).json()) as {
+      id: number;
+    };
+    await app.request(`/sessions/${session.id}/messages`, json({ content: "Bitte kurz halten." }));
+
+    const res = await app.request("/review/run", json({}));
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as { created: number };
+    expect(summary.created).toBe(1);
+
+    const inbox = (await (await app.request("/inbox")).json()) as {
+      pendingWrites: { kind: string; origin: string }[];
+    };
+    expect(inbox.pendingWrites.some((w) => w.kind === "memory" && w.origin === "auto")).toBe(true);
+  });
+
+  it("ist bei Not-Stopp gesperrt (423)", async () => {
+    const app = setupApp(reviewChat);
+    await app.request("/emergency-stop", json({ reason: "Pause" }));
+    const res = await app.request("/review/run", json({}));
+    expect(res.status).toBe(423);
   });
 });

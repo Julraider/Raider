@@ -47,6 +47,8 @@ export interface CoreConfig {
   /** Ordner für Skill-Dateien. */
   skillsDir: string;
   telegram: TelegramSettings;
+  /** Intervall des Hintergrund-Reviews in Sekunden; 0 = aus. */
+  reviewIntervalSeconds: number;
 }
 
 const DEFAULT_PORT = 4179;
@@ -94,6 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
         ? Number(env.RAIDER_TELEGRAM_PAIRING_TTL)
         : DEFAULT_TELEGRAM_PAIRING_TTL,
     },
+    reviewIntervalSeconds: env.RAIDER_REVIEW_INTERVAL ? Number(env.RAIDER_REVIEW_INTERVAL) : 0,
   };
 }
 

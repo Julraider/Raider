@@ -23,6 +23,8 @@ import type {
   PendingWriteListResponse,
   PendingWriteStatus,
   PostMessageRequest,
+  ReviewRunListResponse,
+  ReviewSummary,
   RunTaskResponse,
   ScheduledTask,
   ScheduledTaskListResponse,
@@ -129,6 +131,8 @@ export interface RaiderClient {
   getEmergencyStop(): Promise<EmergencyStopState>;
   engageEmergencyStop(reason?: string): Promise<EmergencyStopState>;
   releaseEmergencyStop(): Promise<EmergencyStopState>;
+  runReview(): Promise<ReviewSummary>;
+  listReviewRuns(): Promise<ReviewRunListResponse>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -232,5 +236,7 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("POST", { reason })),
     releaseEmergencyStop: () =>
       requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("DELETE", {})),
+    runReview: () => requestJson<ReviewSummary>(`${base}/review/run`, jsonInit("POST", {})),
+    listReviewRuns: () => requestJson<ReviewRunListResponse>(`${base}/review/runs`),
   };
 }
