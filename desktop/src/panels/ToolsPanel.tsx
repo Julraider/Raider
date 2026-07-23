@@ -274,8 +274,8 @@ const styles = {
   pre: {
     marginTop: "0.5rem",
     padding: "0.6rem",
-    background: "#f5f5f5",
-    borderRadius: 6,
+    background: "var(--border-soft)",
+    borderRadius: 8,
     whiteSpace: "pre-wrap" as const,
     fontSize: "0.85rem",
     overflowX: "auto" as const,

@@ -86,18 +86,7 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
     <div style={ui.panel}>
       <h2 style={ui.h2}>Skills</h2>
       {error !== null && <div style={ui.error}>{error}</div>}
-      {note !== null && (
-        <div
-          style={{
-            ...ui.error,
-            background: "#e7f5ec",
-            color: "#1a7f3c",
-            border: "1px solid #bfe3ce",
-          }}
-        >
-          {note}
-        </div>
-      )}
+      {note !== null && <div style={ui.success}>{note}</div>}
       {skills.length === 0 && <p style={ui.empty}>Noch keine Skills.</p>}
       {skills.map((skill) => (
         <div key={skill.id} style={ui.card}>
@@ -215,8 +204,8 @@ const styles = {
   pre: {
     marginTop: "0.6rem",
     padding: "0.6rem",
-    background: "#f5f5f5",
-    borderRadius: 6,
+    background: "var(--border-soft)",
+    borderRadius: 8,
     whiteSpace: "pre-wrap" as const,
     fontSize: "0.85rem",
     overflowX: "auto" as const,

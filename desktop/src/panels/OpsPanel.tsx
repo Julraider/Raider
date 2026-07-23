@@ -56,18 +56,7 @@ export function OpsPanel({ client }: { client: RaiderClient }) {
     <div style={ui.panel}>
       <h2 style={ui.h2}>Betrieb</h2>
       {error !== null && <div style={ui.error}>{error}</div>}
-      {note !== null && (
-        <div
-          style={{
-            ...ui.error,
-            background: "#e7f5ec",
-            color: "#1a7f3c",
-            border: "1px solid #bfe3ce",
-          }}
-        >
-          {note}
-        </div>
-      )}
+      {note !== null && <div style={ui.success}>{note}</div>}
 
       <div style={ui.card}>
         <div style={ui.spread}>

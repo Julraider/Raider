@@ -99,8 +99,12 @@ const styles = {
   th: {
     textAlign: "left" as const,
     padding: "0.3rem 0.5rem",
-    borderBottom: "1px solid #ddd",
-    color: "#555",
+    borderBottom: "1px solid var(--border)",
+    color: "var(--muted)",
   },
-  td: { padding: "0.3rem 0.5rem", borderBottom: "1px solid #eee", verticalAlign: "top" as const },
+  td: {
+    padding: "0.3rem 0.5rem",
+    borderBottom: "1px solid var(--border-soft)",
+    verticalAlign: "top" as const,
+  },
 };

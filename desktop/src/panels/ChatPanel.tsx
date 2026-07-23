@@ -1,8 +1,9 @@
 import type { Agent, RaiderClient, StoredMessage } from "@raider/shared";
 import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
+import { Icon } from "../icons";
 import { errorText, ui } from "../ui";
 
-/** Chat-Fenster mit Agentenwahl — die Logik steckt im Core. */
+/** Chat mit Agentenwahl und Sprechblasen — die Logik steckt im Core. */
 export function ChatPanel({ client }: { client: RaiderClient }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<number | null>(null);
@@ -80,8 +81,13 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
 
   return (
     <div style={styles.wrap}>
-      <div style={{ ...ui.spread, padding: "0.75rem 1.25rem", borderBottom: "1px solid #e5e5e5" }}>
-        <span style={ui.muted}>Sitzung {sessionId ?? "—"}</span>
+      <header style={styles.header}>
+        <div>
+          <div style={styles.title}>Chat</div>
+          <div style={ui.brandSub}>
+            {sessionId ? `Sitzung ${sessionId} · ${messages.length} Nachrichten` : "Verbinde…"}
+          </div>
+        </div>
         <select
           style={ui.select}
           value={agentId === null ? "" : String(agentId)}
@@ -95,19 +101,27 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
             </option>
           ))}
         </select>
-      </div>
+      </header>
 
       <div style={styles.messages}>
-        {messages.length === 0 && <p style={ui.empty}>Noch keine Nachrichten.</p>}
-        {messages.map((message) => (
-          <div key={message.id} style={styles.message}>
-            <div style={styles.role}>{message.role === "user" ? "Du" : "Raider"}</div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{message.content}</div>
-          </div>
-        ))}
+        {messages.length === 0 && (
+          <p style={ui.empty}>Noch keine Nachrichten. Schreib unten los.</p>
+        )}
+        {messages.map((message) => {
+          const mine = message.role === "user";
+          return (
+            <div
+              key={message.id}
+              style={{ ...styles.line, alignItems: mine ? "flex-end" : "flex-start" }}
+            >
+              <div style={styles.role}>{mine ? "Du" : "Raider"}</div>
+              <div style={mine ? styles.bubbleMine : styles.bubbleOther}>{message.content}</div>
+            </div>
+          );
+        })}
       </div>
 
-      {error !== null && <div style={{ ...ui.error, margin: "0 1.25rem 0.6rem" }}>{error}</div>}
+      {error !== null && <div style={{ ...ui.error, margin: "0 1.5rem 0.6rem" }}>{error}</div>}
 
       <form onSubmit={onSubmit} style={styles.form}>
         <input
@@ -118,30 +132,66 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
           disabled={sessionId === null}
           aria-label="Nachricht"
         />
-        <button type="submit" style={ui.button} disabled={sessionId === null || busy}>
+        <button
+          type="submit"
+          style={{ ...ui.button, ...styles.send }}
+          disabled={sessionId === null || busy}
+        >
+          <Icon name="send" size={16} />
           {busy ? "…" : "Senden"}
         </button>
       </form>
+      <div style={styles.hint}>Läuft lokal · nichts verlässt deinen Rechner</div>
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   wrap: { display: "flex", flexDirection: "column", height: "100%" },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "1rem 1.5rem",
+    borderBottom: "1px solid var(--border)",
+  },
+  title: { fontWeight: 700, fontSize: "1.15rem", color: "var(--text-strong)" },
   messages: {
     flex: 1,
     overflowY: "auto",
-    padding: "1rem 1.25rem",
+    padding: "1.25rem 1.5rem",
     display: "flex",
     flexDirection: "column",
-    gap: "0.75rem",
+    gap: "1rem",
   },
-  message: { maxWidth: "80%" },
-  role: { fontSize: "0.75rem", color: "#888", marginBottom: "0.15rem" },
+  line: { display: "flex", flexDirection: "column", gap: "0.25rem" },
+  role: { fontSize: "0.72rem", color: "var(--muted)", fontWeight: 600 },
+  bubbleMine: {
+    maxWidth: "72%",
+    padding: "0.7rem 1rem",
+    borderRadius: "16px 16px 4px 16px",
+    background: "var(--accent)",
+    color: "var(--accent-contrast)",
+    whiteSpace: "pre-wrap",
+    lineHeight: 1.5,
+  },
+  bubbleOther: {
+    maxWidth: "72%",
+    padding: "0.7rem 1rem",
+    borderRadius: "16px 16px 16px 4px",
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+    color: "var(--text)",
+    whiteSpace: "pre-wrap",
+    lineHeight: 1.5,
+    boxShadow: "var(--shadow)",
+  },
   form: {
     display: "flex",
-    gap: "0.5rem",
-    padding: "0.75rem 1.25rem",
-    borderTop: "1px solid #e5e5e5",
+    gap: "0.6rem",
+    padding: "0.75rem 1.5rem 0.4rem",
+    borderTop: "1px solid var(--border)",
   },
+  send: { display: "inline-flex", alignItems: "center", gap: "0.4rem" },
+  hint: { padding: "0 1.5rem 0.9rem", fontSize: "0.75rem", color: "var(--muted)" },
 };
