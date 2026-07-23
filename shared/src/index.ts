@@ -521,3 +521,44 @@ export interface ReviewSummary {
 export interface ReviewRunListResponse {
   runs: ReviewRun[];
 }
+
+/**
+ * Betrieb (Schritt 14): Gesundheitscheck, Statistik und Backups, damit Raider
+ * unbeaufsichtigt rund um die Uhr laufen kann.
+ */
+
+/** Herzschlag des Cores — für Menschen und Überwachungsdienste. */
+export interface HealthReport {
+  status: "ok" | "degraded";
+  version: string;
+  uptimeSeconds: number;
+  database: { connected: boolean; path: string };
+  provider: { name: string; model: string; hasApiKey: boolean };
+  workers: { scheduler: boolean; review: boolean; telegram: boolean };
+  emergencyStop: boolean;
+}
+
+/** Zählerstände über das ganze System. */
+export interface StatsReport {
+  sessions: number;
+  messages: number;
+  memory: { user: number; agent: number };
+  skills: number;
+  mcpServers: number;
+  toolCalls: number;
+  pendingProposals: number;
+  scheduledTasks: number;
+  reviewRuns: number;
+}
+
+/** Eine Sicherungskopie der Datenbank. */
+export interface BackupInfo {
+  file: string;
+  path: string;
+  bytes: number;
+  createdAt: string;
+}
+
+export interface BackupListResponse {
+  backups: BackupInfo[];
+}

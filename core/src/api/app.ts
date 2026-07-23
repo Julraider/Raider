@@ -1,5 +1,6 @@
 import type {
   AgentListResponse,
+  BackupListResponse,
   CallToolRequest,
   ChatRequest,
   CreateAgentRequest,
@@ -10,6 +11,7 @@ import type {
   CreateSessionRequest,
   CreateSkillRequest,
   EmergencyStopState,
+  HealthReport,
   ImportSkillRequest,
   McpServerListResponse,
   McpTestResponse,
@@ -28,6 +30,7 @@ import type {
   SkillExportResponse,
   SkillListResponse,
   SkillProposal,
+  StatsReport,
   StatusResponse,
   TelegramChatListResponse,
   TelegramStatusResponse,
@@ -53,6 +56,18 @@ export interface AppConfig {
     /** Ob ein Bot-Token gesetzt ist (der Token selbst bleibt im Core). */
     enabled: boolean;
   };
+  /** Betrieb: Sicherungen, Logging und Angaben für den Gesundheitscheck. */
+  ops: {
+    backupsDir: string;
+    backupKeep: number;
+    logRequests: boolean;
+    /** Läuft der Hintergrund-Review automatisch? */
+    reviewEnabled: boolean;
+    /** Anbieter-Angaben für /health (nie das Geheimnis selbst). */
+    provider: { name: string; model: string; hasApiKey: boolean };
+    /** Startzeitpunkt (epoch ms) für die Laufzeit-Anzeige. */
+    startedAt: number;
+  };
 }
 
 import {
@@ -63,6 +78,7 @@ import {
   listAgents,
   updateAgent,
 } from "../db/agents";
+import { createBackup, listBackups } from "../db/backup";
 import { engageStop, getStop, isStopped, releaseStop } from "../db/emergency";
 import type { Db } from "../db/index";
 import {
@@ -120,6 +136,7 @@ import {
   unassignSkill,
   updateSkill,
 } from "../db/skills";
+import { collectStats } from "../db/stats";
 import { chatCount, createPairingCode, listChats, unpairChat } from "../db/telegram";
 import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
@@ -143,6 +160,21 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
   // Der Core lauscht ohnehin nur auf localhost.
   app.use("*", cors({ origin: (origin) => origin ?? "*" }));
 
+  // Betrieb: knappes Request-Log (nur Methode/Pfad/Status/Dauer, nie Inhalte).
+  if (config.ops.logRequests) {
+    app.use("*", async (c, next) => {
+      const started = Date.now();
+      await next();
+      console.log(`${c.req.method} ${c.req.path} → ${c.res.status} (${Date.now() - started}ms)`);
+    });
+  }
+
+  // Betrieb: ein unerwarteter Fehler wird eine saubere 500 statt eines Absturzes.
+  app.onError((error, c) => {
+    console.error(`Unerwarteter Fehler bei ${c.req.method} ${c.req.path}:`, error);
+    return c.json({ error: "Interner Fehler." }, 500);
+  });
+
   app.get("/status", (c) => {
     const body: StatusResponse = {
       status: "ok",
@@ -152,6 +184,41 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
         migrations: getMigrationStatus(db),
       },
     };
+    return c.json(body);
+  });
+
+  // --- Betrieb: Gesundheit, Statistik, Sicherungen ---
+
+  app.get("/health", (c) => {
+    const connected = db.open;
+    const body: HealthReport = {
+      status: connected ? "ok" : "degraded",
+      version,
+      uptimeSeconds: Math.round((Date.now() - config.ops.startedAt) / 1000),
+      database: { connected, path: db.name },
+      provider: config.ops.provider,
+      workers: {
+        scheduler: true,
+        review: config.ops.reviewEnabled,
+        telegram: config.telegram.enabled,
+      },
+      emergencyStop: isStopped(db),
+    };
+    return c.json(body, connected ? 200 : 503);
+  });
+
+  app.get("/stats", (c) => {
+    const body: StatsReport = collectStats(db);
+    return c.json(body);
+  });
+
+  app.post("/backup", async (c) => {
+    const info = await createBackup(db, config.ops.backupsDir, config.ops.backupKeep);
+    return c.json(info, 201);
+  });
+
+  app.get("/backups", (c) => {
+    const body: BackupListResponse = { backups: listBackups(config.ops.backupsDir) };
     return c.json(body);
   });
 

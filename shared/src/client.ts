@@ -1,6 +1,8 @@
 import type {
   Agent,
   AgentListResponse,
+  BackupInfo,
+  BackupListResponse,
   CallToolRequest,
   ChatRequest,
   ChatResponse,
@@ -12,6 +14,7 @@ import type {
   CreateSessionRequest,
   CreateSkillRequest,
   EmergencyStopState,
+  HealthReport,
   ImportSkillRequest,
   McpServer,
   McpServerListResponse,
@@ -36,6 +39,7 @@ import type {
   SkillExportResponse,
   SkillListResponse,
   SkillWithContent,
+  StatsReport,
   TelegramChatListResponse,
   TelegramPairingCode,
   TelegramStatusResponse,
@@ -133,6 +137,10 @@ export interface RaiderClient {
   releaseEmergencyStop(): Promise<EmergencyStopState>;
   runReview(): Promise<ReviewSummary>;
   listReviewRuns(): Promise<ReviewRunListResponse>;
+  health(): Promise<HealthReport>;
+  stats(): Promise<StatsReport>;
+  createBackup(): Promise<BackupInfo>;
+  listBackups(): Promise<BackupListResponse>;
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
@@ -238,5 +246,9 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("DELETE", {})),
     runReview: () => requestJson<ReviewSummary>(`${base}/review/run`, jsonInit("POST", {})),
     listReviewRuns: () => requestJson<ReviewRunListResponse>(`${base}/review/runs`),
+    health: () => requestJson<HealthReport>(`${base}/health`),
+    stats: () => requestJson<StatsReport>(`${base}/stats`),
+    createBackup: () => requestJson<BackupInfo>(`${base}/backup`, jsonInit("POST", {})),
+    listBackups: () => requestJson<BackupListResponse>(`${base}/backups`),
   };
 }

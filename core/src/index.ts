@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api/app";
 import type { ChatFn } from "./chat/turn";
 import { getAnthropicApiKey, getTelegramToken, loadConfig } from "./config";
+import { createBackup } from "./db/backup";
 import { openDatabase } from "./db/index";
 import { runMigrations } from "./db/migrate";
 import { createMcpRunner } from "./mcp/client";
@@ -14,6 +15,10 @@ import { createScheduler } from "./scheduler/runner";
 import { createTelegramApi } from "./telegram/api";
 import { createTelegramGateway } from "./telegram/gateway";
 import { version } from "./version";
+
+const startedAt = Date.now();
+/** Aufräum-Aktionen fürs saubere Herunterfahren (Runner stoppen etc.). */
+const shutdownTasks: Array<() => void> = [];
 
 const config = loadConfig();
 
@@ -39,6 +44,19 @@ const app = createApp(db, chat, createMcpRunner(), {
     pairingTtlSeconds: config.telegram.pairingTtlSeconds,
     enabled: telegramToken !== undefined,
   },
+  ops: {
+    backupsDir: config.backupsDir,
+    backupKeep: config.backupKeep,
+    logRequests: config.logRequests,
+    reviewEnabled: config.reviewIntervalSeconds > 0,
+    provider: {
+      name: config.provider,
+      model:
+        config.provider === "ollama" ? config.ollama.defaultModel : config.anthropic.defaultModel,
+      hasApiKey: getAnthropicApiKey() !== undefined,
+    },
+    startedAt,
+  },
 });
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
@@ -53,21 +71,66 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
       ? `alle ${config.reviewIntervalSeconds}s`
       : "aus (RAIDER_REVIEW_INTERVAL=0) — manuell: npm run review";
   console.log(`Hintergrund-Review: ${review}`);
+  const backup =
+    config.backupIntervalSeconds > 0
+      ? `alle ${config.backupIntervalSeconds}s (${config.backupsDir})`
+      : "aus (RAIDER_BACKUP_INTERVAL=0) — manuell: npm run backup";
+  console.log(`Auto-Backup: ${backup}`);
 });
 
 // Gateway nur starten, wenn ein Token da ist; der Token verlässt den Core nie.
 if (telegramToken) {
   const gateway = createTelegramGateway({ db, api: createTelegramApi(telegramToken), chat });
   gateway.start();
+  shutdownTasks.push(() => gateway.stop());
 }
 
 // Scheduler läuft immer mit; er prüft vor jedem Lauf den Not-Stopp selbst.
-createScheduler({ db, chat }).start();
+const scheduler = createScheduler({ db, chat });
+scheduler.start();
+shutdownTasks.push(() => scheduler.stop());
 
 // Hintergrund-Review nur bei gesetztem Intervall; prüft ebenfalls den Not-Stopp.
 if (config.reviewIntervalSeconds > 0) {
-  createReviewRunner(db, chat).start(config.reviewIntervalSeconds * 1000);
+  const reviewRunner = createReviewRunner(db, chat);
+  reviewRunner.start(config.reviewIntervalSeconds * 1000);
+  shutdownTasks.push(() => reviewRunner.stop());
 }
+
+// Automatische Sicherungen, wenn ein Intervall gesetzt ist.
+if (config.backupIntervalSeconds > 0) {
+  const timer = setInterval(() => {
+    createBackup(db, config.backupsDir, config.backupKeep).catch((error) =>
+      console.error("Auto-Backup fehlgeschlagen:", error),
+    );
+  }, config.backupIntervalSeconds * 1000);
+  timer.unref?.();
+  shutdownTasks.push(() => clearInterval(timer));
+}
+
+// Sauberes Herunterfahren: Runner stoppen, WAL-Checkpoint, DB schließen.
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n${signal} empfangen — fahre sauber herunter …`);
+  for (const task of shutdownTasks) {
+    try {
+      task();
+    } catch (error) {
+      console.error("Fehler beim Herunterfahren:", error);
+    }
+  }
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    db.close();
+  } catch (error) {
+    console.error("Fehler beim Schließen der Datenbank:", error);
+  }
+  process.exit(0);
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 /** Kurze Beschreibung des aktiven Anbieters fürs Log (ohne Geheimnisse). */
 function describeProvider(): string {

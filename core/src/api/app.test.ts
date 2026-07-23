@@ -49,10 +49,19 @@ function setupApp(chat: ChatFn = stubChat, mcp: McpRunner = stubMcp, limits = de
   const db = openDatabase(":memory:");
   runMigrations(db, migrationsDir);
   const skillsDir = mkdtempSync(join(tmpdir(), "raider-skills-"));
+  const backupsDir = mkdtempSync(join(tmpdir(), "raider-backups-"));
   return createApp(db, chat, mcp, {
     memoryLimits: limits,
     skillsDir,
     telegram: { pairingTtlSeconds: 600, enabled: false },
+    ops: {
+      backupsDir,
+      backupKeep: 3,
+      logRequests: false,
+      reviewEnabled: false,
+      provider: { name: "ollama", model: "llama3.2", hasApiKey: false },
+      startedAt: Date.now(),
+    },
   });
 }
 
@@ -570,5 +579,52 @@ describe("Hintergrund-Review", () => {
     await app.request("/emergency-stop", json({ reason: "Pause" }));
     const res = await app.request("/review/run", json({}));
     expect(res.status).toBe(423);
+  });
+});
+
+describe("Betrieb", () => {
+  it("meldet Gesundheit (ok, DB verbunden, Dienste)", async () => {
+    const app = setupApp();
+    const res = await app.request("/health");
+    expect(res.status).toBe(200);
+    const health = (await res.json()) as {
+      status: string;
+      database: { connected: boolean };
+      workers: { scheduler: boolean; review: boolean };
+      provider: { name: string };
+    };
+    expect(health.status).toBe("ok");
+    expect(health.database.connected).toBe(true);
+    expect(health.workers.scheduler).toBe(true);
+    expect(health.workers.review).toBe(false);
+    expect(health.provider.name).toBe("ollama");
+  });
+
+  it("zählt Aktivität in /stats", async () => {
+    const app = setupApp();
+    const before = (await (await app.request("/stats")).json()) as { sessions: number };
+    expect(before.sessions).toBe(0);
+
+    await app.request("/sessions", json({ channel: "cli" }));
+    const after = (await (await app.request("/stats")).json()) as {
+      sessions: number;
+      reviewRuns: number;
+    };
+    expect(after.sessions).toBe(1);
+    expect(after.reviewRuns).toBe(0);
+  });
+
+  it("legt eine Sicherung an und listet sie", async () => {
+    const app = setupApp();
+    const created = await app.request("/backup", json({}));
+    expect(created.status).toBe(201);
+    const info = (await created.json()) as { file: string; bytes: number };
+    expect(info.file).toMatch(/^raider-.*\.db$/);
+    expect(info.bytes).toBeGreaterThan(0);
+
+    const list = (await (await app.request("/backups")).json()) as {
+      backups: { file: string }[];
+    };
+    expect(list.backups.length).toBe(1);
   });
 });

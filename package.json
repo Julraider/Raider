@@ -29,6 +29,8 @@
     "scheduler": "tsx cli/src/scheduler.ts",
     "stop": "tsx cli/src/stop.ts",
     "review": "tsx cli/src/review.ts",
+    "health": "tsx cli/src/health.ts",
+    "backup": "tsx cli/src/backup.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p desktop/tsconfig.json",
     "lint": "biome check .",
     "format": "biome check --write ."

@@ -49,6 +49,14 @@ export interface CoreConfig {
   telegram: TelegramSettings;
   /** Intervall des Hintergrund-Reviews in Sekunden; 0 = aus. */
   reviewIntervalSeconds: number;
+  /** Ordner für Datenbank-Sicherungen. */
+  backupsDir: string;
+  /** Wie viele Sicherungen aufbewahrt werden. */
+  backupKeep: number;
+  /** Intervall automatischer Sicherungen in Sekunden; 0 = aus. */
+  backupIntervalSeconds: number;
+  /** Ob HTTP-Anfragen geloggt werden (ohne Inhalte). */
+  logRequests: boolean;
 }
 
 const DEFAULT_PORT = 4179;
@@ -97,6 +105,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
         : DEFAULT_TELEGRAM_PAIRING_TTL,
     },
     reviewIntervalSeconds: env.RAIDER_REVIEW_INTERVAL ? Number(env.RAIDER_REVIEW_INTERVAL) : 0,
+    backupsDir: env.RAIDER_BACKUP_DIR ?? join(dataDir, "backups"),
+    backupKeep: env.RAIDER_BACKUP_KEEP ? Number(env.RAIDER_BACKUP_KEEP) : 10,
+    backupIntervalSeconds: env.RAIDER_BACKUP_INTERVAL ? Number(env.RAIDER_BACKUP_INTERVAL) : 0,
+    logRequests: env.RAIDER_LOG_REQUESTS !== "0",
   };
 }
 

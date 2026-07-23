@@ -36,6 +36,8 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `npm run scheduler` | Geplante Aufgaben (`-- new`, `-- on/off <id>`, `-- run <id>`, `-- del <id>`) |
 | `npm run stop` | Not-Stopp aktivieren (`-- release` lösen, `-- status` prüfen) |
 | `npm run review` | Hintergrund-Review jetzt ausführen (`-- history` frühere Läufe) |
+| `npm run health` | Gesundheit + Zählerstände anzeigen |
+| `npm run backup` | Datenbank-Sicherung anlegen (`-- list` vorhandene zeigen) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` über das ganze Repo |
 | `npm run lint` | Biome (Lint + Format-Check) |
@@ -57,8 +59,11 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_MAX_TOKENS` | `2048` | Obergrenze der Antwort-Tokens |
 | `RAIDER_TELEGRAM_TOKEN` | — | Bot-Token von @BotFather; nur serverseitig gelesen, nie geloggt |
 | `RAIDER_TELEGRAM_PAIRING_TTL` | `600` | Gültigkeitsdauer eines Kopplungs-Codes (Sekunden) |
-
 | `RAIDER_REVIEW_INTERVAL` | `0` | Intervall des Hintergrund-Reviews in Sekunden; `0` = aus (manuell per `npm run review`) |
+| `RAIDER_BACKUP_DIR` | `<DATA_DIR>/backups` | Ordner für Datenbank-Sicherungen |
+| `RAIDER_BACKUP_KEEP` | `10` | Wie viele Sicherungen aufbewahrt werden |
+| `RAIDER_BACKUP_INTERVAL` | `0` | Intervall automatischer Sicherungen in Sekunden; `0` = aus |
+| `RAIDER_LOG_REQUESTS` | `1` | HTTP-Anfragen loggen (`0` = aus); nie werden Inhalte geloggt |
 
 > Hinweis: `RAIDER_PORT` nicht auf einen vom Browser gesperrten „bad port"
 > setzen (z. B. 4190) — das eingebaute `fetch` verweigert solche Ports. Der
@@ -117,10 +122,31 @@ Vorhandenem werden übersprungen. Der automatische Hintergrund-Lauf ist
 standardmäßig aus (`RAIDER_REVIEW_INTERVAL=0`) und respektiert den Not-Stopp;
 manuell geht der Review jederzeit.
 
+## Betrieb
+
+Damit Raider unbeaufsichtigt laufen kann:
+- **`npm run health`** zeigt den Herzschlag (DB verbunden, Anbieter, laufende
+  Dienste, Not-Stopp, Laufzeit) plus Zählerstände. `GET /health` liefert `200`
+  wenn gesund, sonst `503` — geeignet für einen Überwachungsdienst.
+- **`npm run backup`** legt eine Sicherung der Datenbank an (better-sqlite3-
+  Online-Backup, konsistent im Betrieb) und behält die letzten
+  `RAIDER_BACKUP_KEEP`. `RAIDER_BACKUP_INTERVAL` schaltet automatische
+  Sicherungen frei.
+- Der Core loggt jede Anfrage knapp (Methode, Pfad, Status, Dauer — **nie**
+  Inhalte); ein globaler Fehler-Guard macht aus einem unerwarteten Fehler eine
+  saubere `500` statt eines Absturzes.
+- Auf `SIGINT`/`SIGTERM` fährt der Core sauber herunter: Hintergrund-Dienste
+  stoppen, WAL-Checkpoint, Datenbank schließen — wichtig als Systemdienst
+  (systemd/launchd).
+
 ## API
 
 ```
 GET  /status                     Version + Datenbankstatus
+GET  /health                     Herzschlag (DB, Anbieter, Dienste, Not-Stopp, Laufzeit)
+GET  /stats                      Zählerstände über das ganze System
+POST /backup                     Datenbank-Sicherung anlegen (behält die letzten N)
+GET  /backups                    Vorhandene Sicherungen auflisten
 POST /chat                       Zustandsloser Einmal-Aufruf (messages im Body)
 POST /sessions                   Neue Sitzung anlegen (optional agentId)
 GET  /sessions                   Sitzungen auflisten
