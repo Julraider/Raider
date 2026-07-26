@@ -205,7 +205,7 @@ export function MemoryPanel({ client }: { client: RaiderClient }) {
                                 </Button>
                               </div>
                             ) : (
-                              <div className="rd-row">
+                              <div className="rd-actions">
                                 <IconButton
                                   icon="edit"
                                   label="Eintrag bearbeiten"

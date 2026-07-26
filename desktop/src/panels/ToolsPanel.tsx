@@ -274,7 +274,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
                       : tools[server.id]?.join(", ")}
                 </td>
                 <td>
-                  <div className="rd-row">
+                  <div className="rd-actions">
                     <Button
                       variant="ghost"
                       small

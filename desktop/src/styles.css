@@ -1110,3 +1110,16 @@ mark {
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
+
+/*
+ * Aktionsknöpfe in einer Tabellenzeile: bleiben in einer Zeile, damit die
+ * Zeilenhöhe nicht springt, sobald eine Sicherheitsabfrage aufklappt.
+ */
+.rd-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}

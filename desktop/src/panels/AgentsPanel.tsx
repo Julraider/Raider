@@ -223,7 +223,7 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
                   {agent.systemPrompt ? agent.systemPrompt : <span className="rd-muted">—</span>}
                 </td>
                 <td>
-                  <div className="rd-row">
+                  <div className="rd-actions">
                     <Button variant="ghost" small icon="edit" onClick={() => edit(agent)}>
                       Bearbeiten
                     </Button>

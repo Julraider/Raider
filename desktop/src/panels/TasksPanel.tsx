@@ -470,7 +470,7 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                     <td className="rd-muted">{formatDateTime(task.lastRunAt)}</td>
                     <td className="rd-muted">{formatDateTime(task.nextRunAt)}</td>
                     <td>
-                      <div className="rd-row">
+                      <div className="rd-actions">
                         <IconButton
                           icon="play"
                           label="Jetzt ausführen"

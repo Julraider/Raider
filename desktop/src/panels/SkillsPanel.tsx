@@ -322,7 +322,7 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
                             )}
                           </td>
                           <td>
-                            <div className="rd-row">
+                            <div className="rd-actions">
                               <Button variant="ghost" small onClick={() => void show(skill.id)}>
                                 {openId === skill.id ? "Zu" : "Inhalt"}
                               </Button>
