@@ -19,6 +19,9 @@ import { errorText } from "../ui";
 
 const STORES: MemoryStore[] = ["user", "agent"];
 
+/** Ab so vielen Einträgen wird je Speicher zunächst gekappt, mit Knopf zum Nachladen. */
+const PAGE_SIZE = 50;
+
 const LABEL: Record<MemoryStore, string> = { user: "Nutzerprofil", agent: "Notizen" };
 
 const DESCRIPTION: Record<MemoryStore, string> = {
@@ -63,6 +66,10 @@ export function MemoryPanel({ client }: { client: RaiderClient }) {
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+  const [visibleCounts, setVisibleCounts] = useState<Record<MemoryStore, number>>({
+    user: PAGE_SIZE,
+    agent: PAGE_SIZE,
+  });
 
   const load = useCallback(async () => {
     try {
@@ -178,7 +185,7 @@ export function MemoryPanel({ client }: { client: RaiderClient }) {
 
                   {view && view.entries.length > 0 && (
                     <Table head={["Eintrag", "Herkunft", "Aktualisiert", ""]}>
-                      {view.entries.map((entry) => (
+                      {view.entries.slice(0, visibleCounts[store]).map((entry) => (
                         <tr key={entry.id}>
                           <td style={{ minWidth: 220 }}>
                             {editingId === entry.id ? (
@@ -218,6 +225,20 @@ export function MemoryPanel({ client }: { client: RaiderClient }) {
                         </tr>
                       ))}
                     </Table>
+                  )}
+
+                  {view && visibleCounts[store] < view.entries.length && (
+                    <div>
+                      <Button
+                        small
+                        variant="ghost"
+                        onClick={() =>
+                          setVisibleCounts((c) => ({ ...c, [store]: c[store] + PAGE_SIZE }))
+                        }
+                      >
+                        Weitere anzeigen ({visibleCounts[store]} von {view.entries.length})
+                      </Button>
+                    </div>
                   )}
 
                   <Field label={`Neuer Eintrag in ${LABEL[store]}`}>

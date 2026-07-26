@@ -11,7 +11,6 @@ import {
   Input,
   Note,
   Page,
-  Select,
   Skeleton,
   Table,
   Textarea,
@@ -19,17 +18,8 @@ import {
 import { useToast } from "../Toast";
 import { errorText } from "../ui";
 
-/** Symbole zur Auswahl für einen Agenten — nur bestehende Icons, keine neuen. */
-const AGENT_ICONS: { key: string; label: string }[] = [
-  { key: "Agenten", label: "Agent (Standard)" },
-  { key: "user", label: "Person" },
-  { key: "shield", label: "Schutz" },
-  { key: "terminal", label: "Terminal" },
-  { key: "key", label: "Schlüssel" },
-  { key: "eye", label: "Beobachter" },
-  { key: "bell", label: "Erinnerung" },
-  { key: "tag", label: "Etikett" },
-];
+/** Ab so vielen Agenten wird die Liste zunächst gekappt, mit Knopf zum Nachladen. */
+const PAGE_SIZE = 50;
 
 /** Datum + Uhrzeit in deutscher Schreibweise. */
 function formatDateTime(iso: string): string {
@@ -53,11 +43,13 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
 
   const [editing, setEditing] = useState<Agent | null>(null);
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState("");
+  // Symbol wird nicht mehr im Formular gewählt (siehe unten) — beim Bearbeiten
+  // übernehmen wir das vorhandene Symbol unverändert, neue Agenten bekommen keins.
+  const [icon, setIcon] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("");
-  const [fallbackModel, setFallbackModel] = useState("");
   const [saving, setSaving] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -88,10 +80,9 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
   function reset(): void {
     setEditing(null);
     setName("");
-    setIcon("");
+    setIcon(null);
     setPrompt("");
     setModel("");
-    setFallbackModel("");
   }
 
   function startCreate(): void {
@@ -102,10 +93,9 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
   function edit(agent: Agent): void {
     setEditing(agent);
     setName(agent.name);
-    setIcon(agent.icon ?? "");
+    setIcon(agent.icon);
     setPrompt(agent.systemPrompt);
     setModel(agent.model ?? "");
-    setFallbackModel(agent.fallbackModel ?? "");
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -116,10 +106,9 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
     }
     const body = {
       name: name.trim(),
-      icon: icon === "" ? null : icon,
+      icon,
       systemPrompt: prompt,
       model: model.trim() === "" ? null : model.trim(),
-      fallbackModel: fallbackModel.trim() === "" ? null : fallbackModel.trim(),
     };
     setSaving(true);
     try {
@@ -191,9 +180,16 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
           }
         />
       ) : (
-        <Card title={`${agents.length} Agent${agents.length === 1 ? "" : "en"}`} flat>
+        <Card
+          title={
+            visibleCount < agents.length
+              ? `${visibleCount} von ${agents.length} Agenten`
+              : `${agents.length} Agent${agents.length === 1 ? "" : "en"}`
+          }
+          flat
+        >
           <Table head={["Agent", "Modell", "Systemprompt", ""]}>
-            {agents.map((agent) => (
+            {agents.slice(0, visibleCount).map((agent) => (
               <tr key={agent.id}>
                 <td>
                   <div className="rd-row">
@@ -208,11 +204,6 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
                     <span className="rd-muted">
                       Standard{defaultModel ? ` (${defaultModel})` : ""}
                     </span>
-                  )}
-                  {agent.fallbackModel && (
-                    <div className="rd-muted" style={{ fontSize: "0.78rem", marginTop: 2 }}>
-                      Ausweichmodell: {agent.fallbackModel}
-                    </div>
                   )}
                 </td>
                 <td
@@ -236,6 +227,13 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
               </tr>
             ))}
           </Table>
+          {visibleCount < agents.length && (
+            <div style={{ marginTop: "var(--space-2)" }}>
+              <Button small variant="ghost" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                Weitere anzeigen ({visibleCount} von {agents.length})
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 
@@ -247,58 +245,23 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
                 Zuletzt geändert: {formatDateTime(editing.updatedAt)}
               </div>
             )}
-            <div className="rd-row" style={{ alignItems: "flex-start" }}>
-              <div style={{ flex: "1 1 200px" }}>
-                <Field label="Name">
-                  <Input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="z. B. Rechercheur"
-                  />
-                </Field>
-              </div>
-              <div style={{ flex: "0 1 200px" }}>
-                <Field label="Symbol" hint="Erscheint neben dem Namen.">
-                  <div className="rd-row">
-                    <Icon name={icon || "Agenten"} size={20} />
-                    <Select value={icon} onChange={(e) => setIcon(e.target.value)}>
-                      <option value="">Kein Symbol</option>
-                      {AGENT_ICONS.map((opt) => (
-                        <option key={opt.key} value={opt.key}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                </Field>
-              </div>
-            </div>
-            <div className="rd-row" style={{ alignItems: "flex-start" }}>
-              <div style={{ flex: "1 1 200px" }}>
-                <Field
-                  label="Modell"
-                  hint={`Leer lassen für das Standardmodell${defaultModel ? ` (${defaultModel})` : ""}.`}
-                >
-                  <Input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="z. B. claude-opus-4"
-                  />
-                </Field>
-              </div>
-              <div style={{ flex: "1 1 200px" }}>
-                <Field
-                  label="Ausweichmodell (optional)"
-                  hint="Springt ein, wenn das Hauptmodell nicht antwortet."
-                >
-                  <Input
-                    value={fallbackModel}
-                    onChange={(e) => setFallbackModel(e.target.value)}
-                    placeholder="z. B. claude-haiku-4"
-                  />
-                </Field>
-              </div>
-            </div>
+            <Field label="Name">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="z. B. Rechercheur"
+              />
+            </Field>
+            <Field
+              label="Modell"
+              hint={`Leer lassen für das Standardmodell${defaultModel ? ` (${defaultModel})` : ""}.`}
+            >
+              <Input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="z. B. claude-opus-4"
+              />
+            </Field>
             <Field
               label="Systemprompt"
               hint="Wie soll sich der Agent verhalten? Diese Anweisung wird jeder Unterhaltung vorangestellt."

@@ -21,6 +21,9 @@ import { errorText } from "../ui";
 
 type StatusFilter = "all" | "active" | "inactive";
 
+/** Ab so vielen Treffern wird die Liste zunächst gekappt, mit Knopf zum Nachladen. */
+const PAGE_SIZE = 50;
+
 /** Passt ein Skill zur Suche (Name, Beschreibung, Kategorie)? */
 function matchesSearch(skill: Skill, term: string): boolean {
   if (term === "") return true;
@@ -29,7 +32,7 @@ function matchesSearch(skill: Skill, term: string): boolean {
 }
 
 /**
- * Skills: anlegen, importieren, exportieren, Agenten zuweisen, an/aus, löschen.
+ * Skills: anlegen, kopieren, Agenten zuweisen, an/aus, löschen.
  * Ein Skill ist eine Markdown-Datei mit zusätzlichen Anweisungen, die ein
  * Agent bei Bedarf bekommt (Ton, Fachwissen, feste Abläufe).
  */
@@ -46,15 +49,15 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
   const [content, setContent] = useState<string>("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  // Merkt sich Suche+Filter, für die visibleCount zuletzt gesetzt wurde.
+  const [appliedFilterKey, setAppliedFilterKey] = useState(" all");
 
   // Anlegen.
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [newContent, setNewContent] = useState("");
-
-  // Import.
-  const [markdown, setMarkdown] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -148,18 +151,6 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
     }
   }
 
-  async function doImport(): Promise<void> {
-    if (!markdown.trim()) return;
-    try {
-      await client.importSkill({ markdown });
-      setMarkdown("");
-      await load();
-      toast.show("Skill importiert.");
-    } catch (err) {
-      toast.showError(errorText(err));
-    }
-  }
-
   async function assign(agentId: number, skillId: number): Promise<void> {
     try {
       await client.assignSkill(agentId, skillId);
@@ -186,6 +177,17 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
       matchesSearch(skill, term) &&
       (statusFilter === "all" || (statusFilter === "active" ? skill.active : !skill.active)),
   );
+  const visible = filtered.slice(0, visibleCount);
+
+  // Bei neuer Suche oder neuem Filter wieder von vorn anzeigen — sonst könnte
+  // ein Treffer unsichtbar hinter der Kappung verschwinden. Direkt beim Rendern
+  // angepasst (statt in einem Effect), weil sich das nur auf abgeleitete Werte
+  // bezieht, nicht auf einen externen Nebeneffekt.
+  const filterKey = `${term} ${statusFilter}`;
+  if (filterKey !== appliedFilterKey) {
+    setAppliedFilterKey(filterKey);
+    setVisibleCount(PAGE_SIZE);
+  }
 
   return (
     <Page
@@ -231,7 +233,7 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
                 <EmptyState
                   icon="Skills"
                   title="Noch keine Skills"
-                  hint="Leg unten einen neuen Skill an oder importiere eine vorhandene Markdown-Datei."
+                  hint="Leg unten einen neuen Skill an."
                 />
               )}
 
@@ -257,7 +259,7 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
 
               {filtered.length > 0 && (
                 <Table head={["Skill", "Kategorie", "Status", "Zugewiesen an", "Aktionen"]}>
-                  {filtered.map((skill) => {
+                  {visible.map((skill) => {
                     const assigned = assignments[skill.id] ?? [];
                     const assignable = agents.filter(
                       (agent) => !assigned.some((a) => a.id === agent.id),
@@ -357,6 +359,18 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
                   })}
                 </Table>
               )}
+
+              {visibleCount < filtered.length && (
+                <div>
+                  <Button
+                    small
+                    variant="ghost"
+                    onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                  >
+                    Weitere anzeigen ({visibleCount} von {filtered.length})
+                  </Button>
+                </div>
+              )}
             </div>
           </Card>
         )}
@@ -405,30 +419,6 @@ export function SkillsPanel({ client }: { client: RaiderClient }) {
               <div>
                 <Button onClick={() => void create()} disabled={!newName.trim()}>
                   Anlegen
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {!loading && error === null && (
-          <Card title="Skill importieren" flat>
-            <div className="rd-stack">
-              <Field
-                label="Markdown"
-                hint="Eine bestehende SKILL.md einfügen (mit Kopfdaten und Inhalt)."
-              >
-                <Textarea
-                  className="rd-mono"
-                  value={markdown}
-                  onChange={(e) => setMarkdown(e.target.value)}
-                  rows={5}
-                  placeholder={"---\nname: Beispiel\ndescription: …\n---\n\nInhalt…"}
-                />
-              </Field>
-              <div>
-                <Button onClick={() => void doImport()} disabled={!markdown.trim()}>
-                  Importieren
                 </Button>
               </div>
             </div>
