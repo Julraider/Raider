@@ -20,7 +20,7 @@
   --accent-soft: #eceae2; /* aktive Navigation: dezentes Warmgrau */
   --accent-soft-text: #211f1b;
   --focus: #3f6fd6; /* die EINE Akzentfarbe: Fokus + Links */
-  --success: #3f7d4e;
+  --success: #2f6b3d; /* dunkel genug fuer 4.5:1 auf --success-soft */
   --success-soft: #e9f0e3;
   --danger: #b4402f;
   --danger-soft: #f7e8e2;
@@ -968,9 +968,14 @@ textarea.rd-control {
   animation: rd-rise var(--dur-2) var(--ease);
   pointer-events: auto;
 }
+/*
+ * Textfarbe laeuft mit dem Modus mit. Hart kodiertes Weiss ergab im
+ * Dunkelmodus nur 2,7:1 auf dem dortigen hellen Rot — ausgerechnet die
+ * wichtigste Rueckmeldung war am schlechtesten lesbar.
+ */
 .rd-toast--error {
   background: var(--danger);
-  color: #fff;
+  color: var(--accent-contrast);
 }
 
 /* Befehlspalette (Strg/Cmd+K). */
@@ -1122,4 +1127,19 @@ mark {
   gap: var(--space-1);
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+/* Warteanzeiger im Eingabefeld, solange Raider an einer Antwort schreibt. */
+@keyframes rd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.rd-spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid var(--border);
+  border-top-color: var(--muted);
+  border-radius: 50%;
+  animation: rd-spin 700ms linear infinite;
 }

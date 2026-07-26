@@ -301,7 +301,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
                       disabled={busy}
                     >
                       <Icon name="refresh" size={14} />
-                      Neu erzeugen
+                      Nochmal fragen
                     </button>
                   )}
                 </div>
@@ -337,15 +337,27 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
               disabled={sessionId === null}
               aria-label="Nachricht"
             />
-            <button
-              type="button"
-              style={{ ...styles.send, ...(canSend ? {} : styles.sendOff) }}
-              onClick={() => (busy ? undefined : void send(input))}
-              disabled={busy ? true : !canSend}
-              aria-label={busy ? "Wartet auf Antwort" : "Senden"}
-            >
-              <Icon name={busy ? "stop" : "send"} size={16} />
-            </button>
+            {/*
+             * Waehrend gewartet wird, steht hier bewusst KEIN Stopp-Symbol: Der
+             * Knopf koennte den laufenden Aufruf gar nicht abbrechen, und ein
+             * Symbol, das Abbrechen verspricht und nichts tut, ist schlimmer als
+             * keins. Stattdessen ein reiner Warteanzeiger.
+             */}
+            {busy ? (
+              <span style={styles.waiting} role="status" aria-label="Raider antwortet gerade">
+                <span className="rd-spinner" />
+              </span>
+            ) : (
+              <button
+                type="button"
+                style={{ ...styles.send, ...(canSend ? {} : styles.sendOff) }}
+                onClick={() => void send(input)}
+                disabled={!canSend}
+                aria-label="Senden"
+              >
+                <Icon name="send" size={16} />
+              </button>
+            )}
           </div>
           <div style={styles.hint}>Läuft lokal · nichts verlässt deinen Rechner</div>
         </div>
@@ -443,6 +455,14 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   sendOff: { opacity: 0.4, cursor: "default" },
+  waiting: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
+    flexShrink: 0,
+  },
   hint: {
     maxWidth: "var(--measure)",
     margin: "0.5rem auto 0",

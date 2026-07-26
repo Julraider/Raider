@@ -11,8 +11,18 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1000,
     height: 720,
+    // Unterhalb dieser Größe drängeln sich Seitenleiste, Verlaufsliste und
+    // Inhalt um denselben Platz und die Bedienelemente überlagern sich.
+    minWidth: 860,
+    minHeight: 560,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
+      // Ausdrücklich gesetzt statt auf die Vorgaben zu vertrauen: Die
+      // Oberfläche braucht keinerlei Node-Zugriff, sie spricht nur über die
+      // schmale Preload-Brücke mit dem Core.
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
   });
 
