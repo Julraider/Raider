@@ -1,4 +1,11 @@
-import type { McpServer, McpServerType, RaiderClient, ToolCall } from "@raider/shared";
+import type {
+  McpServer,
+  McpServerType,
+  McpTool,
+  RaiderClient,
+  ToolCall,
+  ToolPermission,
+} from "@raider/shared";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   Badge,
@@ -41,20 +48,50 @@ function parseEnvLines(text: string): Record<string, string> {
 }
 
 /**
- * Werkzeuge (MCP): Zusatzprogramme verbinden, testen, an-/ausschalten und
- * — nur mit ausdrücklicher Freigabe — Werkzeuge aufrufen. Jeder Aufruf landet
- * im Protokoll, damit nachvollziehbar bleibt, was Raider wirklich getan hat.
+ * Wortteile, die typischerweise auf einen eingreifenden Werkzeugnamen
+ * hindeuten (etwas wird verändert, verschickt oder gelöscht). Nur ein
+ * dezenter Hinweis beim Freigeben — keine Sperre, nur Ehrlichkeit.
+ */
+const SENSITIVE_WORDS = [
+  "delete",
+  "remove",
+  "write",
+  "send",
+  "exec",
+  "rm",
+  "create",
+  "update",
+  "push",
+];
+
+/** Ob der Werkzeugname auf etwas Eingreifendes hindeutet (siehe oben). */
+function looksSensitive(toolName: string): boolean {
+  const lower = toolName.toLowerCase();
+  return SENSITIVE_WORDS.some((word) => lower.includes(word));
+}
+
+/**
+ * Werkzeuge (MCP): Zusatzprogramme verbinden, testen und je Werkzeug eine
+ * Dauerfreigabe erteilen oder zurückziehen. Nur freigegebene Werkzeuge darf
+ * Raider im Gespräch von sich aus benutzen — alles andere sieht das Modell
+ * nicht einmal. Jeder Aufruf landet zusätzlich im Protokoll.
  */
 export function ToolsPanel({ client }: { client: RaiderClient }) {
   const toast = useToast();
 
   const [servers, setServers] = useState<McpServer[]>([]);
   const [calls, setCalls] = useState<ToolCall[]>([]);
-  const [tools, setTools] = useState<Record<number, string[]>>({});
+  const [permissions, setPermissions] = useState<ToolPermission[]>([]);
+  // Volle Werkzeug-Info (Name + Beschreibung) je Server, gefüllt beim Testen.
+  const [tools, setTools] = useState<Record<number, McpTool[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  // Welcher Server gerade seine Werkzeuge samt Freigabe-Schaltern zeigt.
+  const [expandedServer, setExpandedServer] = useState<number | null>(null);
+  // Schlüssel `serverId:toolName` einer Freigabe, die gerade gesetzt/entfernt wird.
+  const [pendingPermission, setPendingPermission] = useState<string | null>(null);
 
   // Formular „neuer Server".
   const [name, setName] = useState("");
@@ -79,9 +116,14 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
 
   const load = useCallback(async () => {
     try {
-      const [srv, log] = await Promise.all([client.listMcpServers(), client.listToolCalls()]);
+      const [srv, log, perms] = await Promise.all([
+        client.listMcpServers(),
+        client.listToolCalls(),
+        client.listToolPermissions(),
+      ]);
       setServers(srv.servers);
       setCalls(log.toolCalls);
+      setPermissions(perms.permissions);
       setError(null);
     } catch (err) {
       setError(errorText(err));
@@ -98,7 +140,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
     setTesting(id);
     try {
       const res = await client.testMcpServer(id);
-      setTools((t) => ({ ...t, [id]: res.tools.map((tool) => tool.name) }));
+      setTools((t) => ({ ...t, [id]: res.tools }));
       toast.show(
         res.tools.length === 0
           ? "Verbunden — keine Werkzeuge gefunden."
@@ -128,6 +170,38 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
       toast.show(`„${server.name}" gelöscht.`);
     } catch (err) {
       toast.showError(errorText(err));
+    }
+  }
+
+  /** Ob dieses Werkzeug gerade eine Dauerfreigabe hat. */
+  function isGranted(serverId: number, toolName: string): boolean {
+    return permissions.some((p) => p.serverId === serverId && p.toolName === toolName);
+  }
+
+  /** Wie viele der bekannten Werkzeuge eines Servers freigegeben sind. */
+  function grantedCount(serverId: number): number {
+    return (tools[serverId] ?? []).filter((tool) => isGranted(serverId, tool.name)).length;
+  }
+
+  /** Schaltet die Dauerfreigabe für genau ein Werkzeug an oder aus. */
+  async function togglePermission(serverId: number, toolName: string): Promise<void> {
+    const key = `${serverId}:${toolName}`;
+    const granted = isGranted(serverId, toolName);
+    setPendingPermission(key);
+    try {
+      if (granted) {
+        await client.revokeToolPermission(serverId, toolName);
+        toast.show(`„${toolName}" gesperrt.`);
+      } else {
+        await client.grantToolPermission(serverId, toolName);
+        toast.show(`„${toolName}" freigegeben — Raider darf es jetzt selbst benutzen.`);
+      }
+      const perms = await client.listToolPermissions();
+      setPermissions(perms.permissions);
+    } catch (err) {
+      toast.showError(errorText(err));
+    } finally {
+      setPendingPermission(null);
     }
   }
 
@@ -221,7 +295,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
     return server ? server.name : `Server #${serverId} (gelöscht)`;
   }
 
-  const selectedTools = callServer ? (tools[Number(callServer)] ?? []) : [];
+  const selectedTools = callServer ? (tools[Number(callServer)] ?? []).map((t) => t.name) : [];
   const filteredCalls = calls.filter((entry) => {
     if (onlyErrors && !entry.isError) return false;
     if (logServerFilter && String(entry.serverId) !== logServerFilter) return false;
@@ -232,7 +306,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
   return (
     <Page
       title="Werkzeuge"
-      subtitle="Ein MCP-Server ist ein Zusatzprogramm, das Raider neue Fähigkeiten gibt — z. B. Dateizugriff, Websuche oder einen Kalender. Raider darf ein Werkzeug aber erst benutzen, wenn du den Aufruf ausdrücklich freigibst."
+      subtitle="Ein MCP-Server ist ein Zusatzprogramm, das Raider neue Fähigkeiten gibt — z. B. Dateizugriff, Websuche oder einen Kalender. Freigegebene Werkzeuge darf Raider im Gespräch von sich aus benutzen, ohne jedes Mal zu fragen. Alles andere bleibt gesperrt."
     >
       <Card title="Verbundene Server">
         {loading ? (
@@ -247,51 +321,125 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
           />
         ) : (
           <Table head={["Server", "Verbindung", "Status", "Werkzeuge", ""]}>
-            {servers.map((server) => (
-              <tr key={server.id}>
-                <td>
-                  <div className="rd-row">
-                    <strong>{server.name}</strong>
-                    <Badge tone="quiet">{server.type}</Badge>
-                  </div>
-                </td>
-                <td className="rd-mono rd-truncate" style={{ maxWidth: 260 }}>
-                  {server.type === "stdio"
-                    ? `${server.command ?? ""} ${server.args.join(" ")}`.trim() || "—"
-                    : (server.url ?? "—")}
-                </td>
-                <td>
-                  <span className="rd-row">
-                    <StatusDot tone={server.enabled ? "ok" : "neutral"} />
-                    {server.enabled ? "Aktiv" : "Aus"}
-                  </span>
-                </td>
-                <td className="rd-muted">
-                  {tools[server.id] === undefined
-                    ? "Noch nicht getestet"
-                    : tools[server.id]?.length === 0
-                      ? "Keine gefunden"
-                      : tools[server.id]?.join(", ")}
-                </td>
-                <td>
-                  <div className="rd-actions">
-                    <Button
-                      variant="ghost"
-                      small
-                      icon="refresh"
-                      disabled={testing === server.id}
-                      onClick={() => void test(server.id)}
-                    >
-                      {testing === server.id ? "Testet…" : "Testen"}
-                    </Button>
-                    <Button variant="ghost" small onClick={() => void toggleEnabled(server)}>
-                      {server.enabled ? "Ausschalten" : "Einschalten"}
-                    </Button>
-                    <ConfirmButton small onConfirm={() => void removeServer(server)} />
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {servers.map((server) => {
+              const serverTools = tools[server.id];
+              return (
+                <Fragment key={server.id}>
+                  <tr>
+                    <td>
+                      <div className="rd-row">
+                        <strong>{server.name}</strong>
+                        <Badge tone="quiet">{server.type}</Badge>
+                      </div>
+                    </td>
+                    <td className="rd-mono rd-truncate" style={{ maxWidth: 260 }}>
+                      {server.type === "stdio"
+                        ? `${server.command ?? ""} ${server.args.join(" ")}`.trim() || "—"
+                        : (server.url ?? "—")}
+                    </td>
+                    <td>
+                      <span className="rd-row">
+                        <StatusDot tone={server.enabled ? "ok" : "neutral"} />
+                        {server.enabled ? "Aktiv" : "Aus"}
+                      </span>
+                    </td>
+                    <td>
+                      {serverTools === undefined ? (
+                        <span className="rd-muted">Noch nicht getestet</span>
+                      ) : serverTools.length === 0 ? (
+                        <span className="rd-muted">Keine gefunden</span>
+                      ) : (
+                        <Badge tone={grantedCount(server.id) > 0 ? "ok" : "quiet"}>
+                          {grantedCount(server.id)} von {serverTools.length} freigegeben
+                        </Badge>
+                      )}
+                    </td>
+                    <td>
+                      <div className="rd-actions">
+                        <IconButton
+                          icon="chevron"
+                          label={
+                            expandedServer === server.id
+                              ? "Freigaben verbergen"
+                              : "Freigaben zeigen"
+                          }
+                          onClick={() =>
+                            setExpandedServer((v) => (v === server.id ? null : server.id))
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          small
+                          icon="refresh"
+                          disabled={testing === server.id}
+                          onClick={() => void test(server.id)}
+                        >
+                          {testing === server.id ? "Testet…" : "Testen"}
+                        </Button>
+                        <Button variant="ghost" small onClick={() => void toggleEnabled(server)}>
+                          {server.enabled ? "Ausschalten" : "Einschalten"}
+                        </Button>
+                        <ConfirmButton small onConfirm={() => void removeServer(server)} />
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedServer === server.id && (
+                    <tr>
+                      <td colSpan={5}>
+                        {serverTools === undefined ? (
+                          <Note tone="info">
+                            Dieser Server wurde noch nicht getestet. Erst testen, dann freigeben —
+                            teste ihn oben, um seine Werkzeuge zu sehen.
+                          </Note>
+                        ) : serverTools.length === 0 ? (
+                          <Note tone="info">
+                            Beim letzten Test wurden keine Werkzeuge gefunden.
+                          </Note>
+                        ) : (
+                          <div className="rd-stack">
+                            {serverTools.map((tool) => {
+                              const granted = isGranted(server.id, tool.name);
+                              const key = `${server.id}:${tool.name}`;
+                              return (
+                                <div className="rd-spread" key={tool.name}>
+                                  <div className="rd-grow">
+                                    <div className="rd-row">
+                                      <span className="rd-mono">{tool.name}</span>
+                                      <Badge tone={granted ? "ok" : "quiet"}>
+                                        {granted ? "Freigegeben" : "Gesperrt"}
+                                      </Badge>
+                                      {looksSensitive(tool.name) && (
+                                        <Badge tone="warn">Verändert etwas</Badge>
+                                      )}
+                                    </div>
+                                    <div className="rd-hint">
+                                      {tool.description ?? "Keine Beschreibung vorhanden."}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    variant={granted ? "ghost" : "primary"}
+                                    small
+                                    icon={granted ? "lock" : "check"}
+                                    disabled={pendingPermission === key}
+                                    onClick={() => void togglePermission(server.id, tool.name)}
+                                  >
+                                    {pendingPermission === key
+                                      ? "Einen Moment…"
+                                      : granted
+                                        ? "Sperren"
+                                        : "Freigeben"}
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </Table>
         )}
       </Card>
@@ -358,10 +506,20 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
         </div>
       </Card>
 
-      <Card title="Werkzeug aufrufen">
+      {/*
+        Frühere Kernfunktion, jetzt nur noch Diagnose: Seit Raider Werkzeuge
+        selbst aufruft, braucht ein normaler Nutzer diese Karte praktisch nie
+        mehr — sie bleibt eingeklappt und nur für Fortgeschrittene sichtbar,
+        die einen einzelnen Aufruf von Hand ausprobieren wollen.
+      */}
+      <details className="rd-card">
+        <summary className="rd-card-title" style={{ cursor: "pointer" }}>
+          Zum Ausprobieren (für Fortgeschrittene)
+        </summary>
         <Note tone="info">
-          Sicherheitsfunktion: Raider führt ein Werkzeug erst aus, wenn du es hier ausdrücklich
-          freigibst. Trag deinen Namen ein, um zu bestätigen, dass du genau diesen Aufruf erlaubst.
+          Diagnose-Werkzeug: Hier kannst du ein Werkzeug einmalig von Hand aufrufen — unabhängig von
+          den Dauerfreigaben oben. Trag deinen Namen ein, um zu bestätigen, dass du genau diesen
+          einen Aufruf erlaubst.
         </Note>
         <div className="rd-stack" style={{ marginTop: "var(--space-3)" }}>
           <div className="rd-row" style={{ alignItems: "flex-start" }}>
@@ -456,7 +614,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
             </Card>
           )}
         </div>
-      </Card>
+      </details>
 
       <Card
         title="Protokoll"

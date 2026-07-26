@@ -8,8 +8,17 @@ import {
   useState,
 } from "react";
 import { Icon } from "../icons";
+import { ConfirmButton, IconButton, Input } from "../kit";
 import { Markdown } from "../Markdown";
+import { useToast } from "../Toast";
 import { errorText, ui } from "../ui";
+
+/** Nutzersichtbare Meldung, wenn der Hintergrunddienst nicht antwortet. */
+const OFFLINE_MESSAGE =
+  "Raider konnte sich nicht mit seinem Hintergrundprogramm verbinden. Starte Raider einmal neu — hilft das nicht, notiere dir diese Meldung.";
+
+/** Merkt, ob die Verlaufsliste eingeklappt ist, über Fenster-Neustarts hinweg. */
+const HIST_COLLAPSED_KEY = "raider.chat.histCollapsed";
 
 const EXAMPLES = [
   "Fasse mir meine offenen Aufgaben zusammen.",
@@ -59,7 +68,15 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   const [live, setLive] = useState("");
   /** Kurzer Hinweis, welches Werkzeug Raider gerade benutzt. */
   const [toolNote, setToolNote] = useState<string | null>(null);
+  /** Sitzung, deren Titel gerade bearbeitet wird (Eingabefeld an Ort und Stelle). */
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+  /** Verlaufsliste eingeklappt — bei schmalem Fenster Platz für den Chat schaffen. */
+  const [histCollapsed, setHistCollapsed] = useState(
+    () => window.localStorage.getItem(HIST_COLLAPSED_KEY) === "1",
+  );
 
+  const toast = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -74,6 +91,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   const openSession = useCallback(
     async (session: Session): Promise<void> => {
       setError(null);
+      setEditingId(null); // laufende Umbenennung nicht über Sitzungen hinweg mitschleppen
       setSessionId(session.id);
       setAgentId(session.agentId);
       try {
@@ -81,7 +99,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
         setMessages(result.messages);
       } catch {
         setMessages([]);
-        setError("Kein Core erreichbar. Läuft der Core?");
+        setError(OFFLINE_MESSAGE);
       }
     },
     [client],
@@ -111,7 +129,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
           setMessages([]);
         }
       } catch {
-        if (!cancelled) setError("Kein Core erreichbar. Läuft der Core?");
+        if (!cancelled) setError(OFFLINE_MESSAGE);
       }
     }
     void init();
@@ -137,6 +155,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   /** Neuer Chat mit dem aktuell gewählten Agenten — löscht nichts, der alte Chat bleibt im Verlauf. */
   async function newChat(): Promise<void> {
     setError(null);
+    setEditingId(null);
     try {
       const session = await client.createSession({ channel: "desktop", agentId });
       setSessions((prev) => [session, ...prev]);
@@ -144,13 +163,75 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
       setMessages([]);
       composerRef.current?.focus();
     } catch {
-      setError("Kein Core erreichbar. Läuft der Core?");
+      setError(OFFLINE_MESSAGE);
     }
   }
 
   async function refresh(id: number): Promise<void> {
     const result = await client.getMessages(id);
     setMessages(result.messages);
+  }
+
+  /** Öffnet das Eingabefeld zum Umbenennen einer Sitzung an Ort und Stelle. */
+  function startRename(session: Session): void {
+    setEditingId(session.id);
+    setEditValue(session.title ?? "");
+  }
+
+  /** Speichert den neuen Titel. Leerer Text lässt den Core einen Ersatznamen vergeben. */
+  async function saveTitle(session: Session): Promise<void> {
+    const title = editValue.trim();
+    setEditingId(null);
+    try {
+      const updated = await client.renameSession(session.id, title);
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      toast.show("Umbenannt.");
+    } catch {
+      toast.showError("Umbenennen hat nicht geklappt.");
+    }
+  }
+
+  /**
+   * Löscht eine Sitzung endgültig. War sie gerade geöffnet, wird eine andere
+   * Sitzung geöffnet oder — falls keine mehr übrig ist — ein neuer Chat
+   * angelegt, damit die Ansicht nie leer stehen bleibt.
+   */
+  async function removeSession(session: Session): Promise<void> {
+    try {
+      await client.deleteSession(session.id);
+    } catch {
+      toast.showError("Löschen hat nicht geklappt.");
+      return;
+    }
+    const remaining = sessions.filter((s) => s.id !== session.id);
+    setSessions(remaining);
+    if (editingId === session.id) setEditingId(null);
+    toast.show("Gespräch gelöscht.");
+
+    if (sessionId !== session.id) return; // war nicht offen, Ansicht bleibt wie sie ist
+
+    const next = remaining[0];
+    if (next) {
+      await openSession(next);
+      return;
+    }
+    try {
+      const created = await client.createSession({ channel: "desktop", agentId });
+      setSessions([created]);
+      setSessionId(created.id);
+      setMessages([]);
+    } catch {
+      setError(OFFLINE_MESSAGE);
+    }
+  }
+
+  /** Ein-/Ausklappen der Verlaufsliste merken, damit die Wahl über Neustarts hinweg bleibt. */
+  function toggleHistCollapsed(): void {
+    setHistCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(HIST_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
   }
 
   /**
@@ -266,29 +347,99 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
 
   return (
     <div style={styles.wrap}>
-      {/* Verlaufsleiste */}
-      <aside style={styles.hist}>
-        <button type="button" style={styles.newBtn} onClick={() => void newChat()}>
-          <Icon name="plus" size={16} />
-          Neuer Chat
-        </button>
-        <div style={styles.histList}>
-          {sessions.length === 0 && (
-            <div style={{ ...ui.muted, padding: "0.5rem 0.6rem" }}>Noch kein Verlauf.</div>
-          )}
-          {sessions.map((s) => (
+      {/* Verlaufsleiste — bei schmalem Fenster einklappbar, damit mehr Platz für den Chat bleibt. */}
+      <aside style={histCollapsed ? styles.histNarrow : styles.hist}>
+        <div style={styles.histTopRow}>
+          {!histCollapsed && (
             <button
-              key={s.id}
               type="button"
-              className="rd-hist-item"
-              aria-current={s.id === sessionId}
-              onClick={() => void openSession(s)}
-              title={sessionLabel(s)}
+              style={{ ...styles.newBtn, flex: 1 }}
+              onClick={() => void newChat()}
             >
-              {sessionLabel(s)}
+              <Icon name="plus" size={16} />
+              Neuer Chat
             </button>
-          ))}
+          )}
+          <IconButton
+            icon="chevron"
+            label={histCollapsed ? "Verlauf einblenden" : "Verlauf ausblenden"}
+            onClick={toggleHistCollapsed}
+            style={{ transform: histCollapsed ? "rotate(-90deg)" : "rotate(90deg)" }}
+          />
         </div>
+        {histCollapsed ? (
+          <button
+            type="button"
+            aria-label="Neuer Chat"
+            title="Neuer Chat"
+            style={styles.newBtnNarrow}
+            onClick={() => void newChat()}
+          >
+            <Icon name="plus" size={16} />
+          </button>
+        ) : (
+          <div style={styles.histList}>
+            {sessions.length === 0 && (
+              <div style={{ ...ui.muted, padding: "0.5rem 0.6rem" }}>Noch kein Verlauf.</div>
+            )}
+            {sessions.map((s) =>
+              editingId === s.id ? (
+                <div key={s.id} style={styles.histRow}>
+                  <Input
+                    autoFocus
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void saveTitle(s);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEditingId(null);
+                      }
+                    }}
+                    placeholder={`Chat ${s.id}`}
+                    aria-label="Titel des Gesprächs"
+                    style={styles.histEditInput}
+                  />
+                  <IconButton
+                    icon="check"
+                    label="Speichern"
+                    onClick={() => void saveTitle(s)}
+                    style={styles.histIconBtn}
+                  />
+                  <IconButton
+                    icon="x"
+                    label="Abbrechen"
+                    onClick={() => setEditingId(null)}
+                    style={styles.histIconBtn}
+                  />
+                </div>
+              ) : (
+                <div key={s.id} style={styles.histRow}>
+                  <button
+                    type="button"
+                    className="rd-hist-item"
+                    style={styles.histItemBtn}
+                    aria-current={s.id === sessionId}
+                    onClick={() => void openSession(s)}
+                    onDoubleClick={() => startRename(s)}
+                    title={sessionLabel(s)}
+                  >
+                    {sessionLabel(s)}
+                  </button>
+                  <IconButton
+                    icon="edit"
+                    label="Umbenennen"
+                    onClick={() => startRename(s)}
+                    style={styles.histIconBtn}
+                  />
+                  <ConfirmButton small onConfirm={() => void removeSession(s)} />
+                </div>
+              ),
+            )}
+          </div>
+        )}
       </aside>
 
       {/* Gespräch */}
@@ -373,6 +524,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
                       className="rd-msg-btn"
                       onClick={() => void regenerate(message)}
                       disabled={busy}
+                      title="Stellt die vorausgehende Frage erneut — der bisherige Verlauf bleibt erhalten."
                     >
                       <Icon name="refresh" size={14} />
                       Nochmal fragen
@@ -467,6 +619,36 @@ const styles: Record<string, CSSProperties> = {
     gap: "0.6rem",
     background: "var(--bg)",
   },
+  // Eingeklappter Zustand: schmaler Streifen mit nur Umschalt- und Neu-Knopf,
+  // damit die Verlaufsliste bei schmalen Fenstern nicht die Hälfte frisst.
+  histNarrow: {
+    width: 52,
+    flexShrink: 0,
+    borderRight: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    padding: "0.75rem 0.5rem",
+    gap: "0.6rem",
+    background: "var(--bg)",
+  },
+  histTopRow: { display: "flex", alignItems: "center", gap: "0.4rem", width: "100%" },
+  newBtnNarrow: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 32,
+    height: 32,
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--card)",
+    color: "var(--text)",
+    cursor: "pointer",
+  },
+  histRow: { display: "flex", alignItems: "center", gap: "0.25rem" },
+  histItemBtn: { flex: 1, minWidth: 0 },
+  histIconBtn: { width: 28, height: 28, flexShrink: 0 },
+  histEditInput: { flex: 1, minWidth: 0, padding: "0.35rem 0.5rem", fontSize: "0.85rem" },
   newBtn: {
     display: "inline-flex",
     alignItems: "center",
