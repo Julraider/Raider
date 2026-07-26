@@ -54,6 +54,7 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 | `RAIDER_DATA_DIR` | `~/Raider` | Datenordner |
 | `RAIDER_DB_PATH` | `<DATA_DIR>/raider.db` | Pfad zur SQLite-Datei |
 | `RAIDER_PORT` | `4179` | Port der lokalen API |
+| `RAIDER_HOST` | `127.0.0.1` | Adresse, auf der die API lauscht. Standard: nur der eigene Rechner. **Die API hat kein Passwort** — wer das auf `0.0.0.0` setzt, gibt Gespräche und Werkzeuge für jedes Gerät im Netz frei. |
 | `RAIDER_PROVIDER` | auto | `anthropic` oder `ollama`; ohne Wert: Anthropic wenn Key da, sonst Ollama |
 | `ANTHROPIC_API_KEY` | — | API-Key; nur serverseitig gelesen, nie geloggt |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Basis-URL von Anthropic |

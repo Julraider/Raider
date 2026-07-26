@@ -39,6 +39,13 @@ export interface CoreConfig {
   databasePath: string;
   /** Port der lokalen API. */
   port: number;
+  /**
+   * Netzwerkadresse, auf der die API lauscht. Standard 127.0.0.1 — damit ist
+   * der Core NUR vom eigenen Rechner erreichbar. Ohne diese Angabe würde Node
+   * auf allen Netzwerkkarten lauschen, und da die API bewusst ohne Passwort
+   * arbeitet, könnte jedes Gerät im selben WLAN mitlesen und mitschreiben.
+   */
+  host: string;
   /** Aktiver Anbieter. */
   provider: ProviderName;
   anthropic: AnthropicSettings;
@@ -60,6 +67,8 @@ export interface CoreConfig {
 }
 
 const DEFAULT_PORT = 4179;
+/** Nur der eigene Rechner. Absichtlich nicht 0.0.0.0 — die API hat kein Passwort. */
+const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_MEMORY_AGENT_LIMIT = 2200;
 const DEFAULT_MEMORY_USER_LIMIT = 1375;
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -73,12 +82,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
   const dataDir = env.RAIDER_DATA_DIR ?? join(homedir(), "Raider");
   const databasePath = env.RAIDER_DB_PATH ?? join(dataDir, "raider.db");
   const port = env.RAIDER_PORT ? Number(env.RAIDER_PORT) : DEFAULT_PORT;
+  // Bewusst restriktiv: nur wer RAIDER_HOST ausdrücklich setzt, öffnet den Core
+  // übers Netzwerk — und wird beim Start deutlich davor gewarnt.
+  const host = env.RAIDER_HOST?.trim() ? env.RAIDER_HOST.trim() : DEFAULT_HOST;
   const maxTokens = env.RAIDER_MAX_TOKENS ? Number(env.RAIDER_MAX_TOKENS) : DEFAULT_MAX_TOKENS;
 
   return {
     dataDir,
     databasePath,
     port,
+    host,
     provider: resolveProvider(env),
     anthropic: {
       baseUrl: env.ANTHROPIC_BASE_URL ?? DEFAULT_ANTHROPIC_BASE_URL,

@@ -59,8 +59,24 @@ const app = createApp(db, chat, createMcpRunner(), {
   },
 });
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
+/** Adressen, die nur den eigenen Rechner meinen. */
+function isLoopback(host: string): boolean {
+  return host === "127.0.0.1" || host === "::1" || host === "localhost";
+}
+
+// `hostname` MUSS gesetzt sein: ohne die Angabe lauscht Node auf allen
+// Netzwerkkarten, und da die API bewusst ohne Passwort arbeitet, könnte dann
+// jedes Gerät im selben WLAN Gespräche mitlesen und Werkzeuge auslösen.
+serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.log(`Raider Core v${version} läuft auf http://localhost:${info.port}`);
+  if (!isLoopback(config.host)) {
+    console.warn(
+      `WARNUNG: Der Core ist über das Netzwerk erreichbar (RAIDER_HOST=${config.host}).\n` +
+        "         Die API hat kein Passwort — jedes Gerät im selben Netz kann deine\n" +
+        "         Gespräche lesen und Werkzeuge auslösen. Nur in vertrauenswürdigen\n" +
+        "         Netzen verwenden; sonst RAIDER_HOST entfernen.",
+    );
+  }
   console.log(`Datenbank: ${config.databasePath} (${migrations.applied} Migrationen angewendet)`);
   console.log(`Anbieter: ${describeProvider()}`);
   console.log(
