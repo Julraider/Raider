@@ -58,6 +58,22 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
     return desktop;
   }, [client]);
 
+  const openSession = useCallback(
+    async (session: Session): Promise<void> => {
+      setError(null);
+      setSessionId(session.id);
+      setAgentId(session.agentId);
+      try {
+        const result = await client.getMessages(session.id);
+        setMessages(result.messages);
+      } catch {
+        setMessages([]);
+        setError("Kein Core erreichbar. Läuft der Core?");
+      }
+    },
+    [client],
+  );
+
   // Erststart: Agenten + Verlauf laden, jüngste Sitzung öffnen oder neue anlegen.
   useEffect(() => {
     let cancelled = false;
@@ -89,27 +105,14 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
     return () => {
       cancelled = true;
     };
-    // openSession/loadSessions sind stabil genug für den Erststart.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client]);
+  }, [client, loadSessions, openSession]);
 
   // Nach neuen Nachrichten nach unten scrollen.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    if (messages.length === 0) return;
+    const box = scrollRef.current;
+    box?.scrollTo({ top: box.scrollHeight });
   }, [messages]);
-
-  async function openSession(session: Session): Promise<void> {
-    setError(null);
-    setSessionId(session.id);
-    setAgentId(session.agentId);
-    try {
-      const result = await client.getMessages(session.id);
-      setMessages(result.messages);
-    } catch {
-      setMessages([]);
-      setError("Kein Core erreichbar. Läuft der Core?");
-    }
-  }
 
   /** Neuer Chat mit dem aktuell gewählten Agenten — löscht nichts, der alte Chat bleibt im Verlauf. */
   async function newChat(): Promise<void> {
@@ -196,7 +199,9 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
           Neuer Chat
         </button>
         <div style={styles.histList}>
-          {sessions.length === 0 && <div style={{ ...ui.muted, padding: "0.5rem 0.6rem" }}>Noch kein Verlauf.</div>}
+          {sessions.length === 0 && (
+            <div style={{ ...ui.muted, padding: "0.5rem 0.6rem" }}>Noch kein Verlauf.</div>
+          )}
           {sessions.map((s) => (
             <button
               key={s.id}
@@ -280,7 +285,11 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
                   </div>
                 )}
                 <div className="rd-msg-actions" style={styles.actions}>
-                  <button type="button" className="rd-msg-btn" onClick={() => void copyMessage(message)}>
+                  <button
+                    type="button"
+                    className="rd-msg-btn"
+                    onClick={() => void copyMessage(message)}
+                  >
                     <Icon name={copiedId === message.id ? "check" : "copy"} size={14} />
                     {copiedId === message.id ? "Kopiert" : "Kopieren"}
                   </button>
@@ -384,7 +393,12 @@ const styles: Record<string, CSSProperties> = {
   agentPick: { display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "flex-end" },
   messages: { flex: 1, overflowY: "auto", padding: "1.5rem" },
   emptyWrap: { maxWidth: "var(--measure)", margin: "2.5rem auto 0" },
-  emptyTitle: { fontSize: "1.4rem", fontWeight: 700, color: "var(--text-strong)", marginBottom: "0.35rem" },
+  emptyTitle: {
+    fontSize: "1.4rem",
+    fontWeight: 700,
+    color: "var(--text-strong)",
+    marginBottom: "0.35rem",
+  },
   suggestGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" },
   msg: { maxWidth: "var(--measure)", margin: "0 auto 1.5rem" },
   msgHead: { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" },
