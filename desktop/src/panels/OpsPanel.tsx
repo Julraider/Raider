@@ -108,7 +108,10 @@ export function OpsPanel({ client }: { client: RaiderClient }) {
           <>
             {error !== null && <Note tone="error">{error}</Note>}
 
-            <Card title="Gesamtzustand" actions={<Badge tone={overall.tone}>{overall.label}</Badge>}>
+            <Card
+              title="Gesamtzustand"
+              actions={<Badge tone={overall.tone}>{overall.label}</Badge>}
+            >
               <div className="rd-stack rd-stack--tight">
                 <div className="rd-row">
                   <StatusDot tone={health.database.connected ? "ok" : "warn"} />
@@ -229,7 +232,11 @@ export function OpsPanel({ client }: { client: RaiderClient }) {
                   {backups.map((backup) => (
                     <tr key={backup.file}>
                       <td>
-                        <div className="rd-mono rd-truncate" style={{ maxWidth: 280 }} title={backup.path}>
+                        <div
+                          className="rd-mono rd-truncate"
+                          style={{ maxWidth: 280 }}
+                          title={backup.path}
+                        >
                           {backup.file}
                         </div>
                       </td>

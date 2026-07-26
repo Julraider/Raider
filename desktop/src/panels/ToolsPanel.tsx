@@ -340,7 +340,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
           )}
           <Field
             label="Umgebungsvariablen (optional)"
-            hint='Für Zugangsdaten, die der Server braucht — eine Zeile pro Eintrag, z. B. API_KEY=abc123. Werte werden danach in der Liste verborgen angezeigt.'
+            hint="Für Zugangsdaten, die der Server braucht — eine Zeile pro Eintrag, z. B. API_KEY=abc123. Werte werden danach in der Liste verborgen angezeigt."
           >
             <Textarea
               className="rd-mono"

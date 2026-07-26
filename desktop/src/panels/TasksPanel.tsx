@@ -114,7 +114,8 @@ function draftFromTask(task: ScheduledTask): Draft {
     prompt: task.prompt,
   };
   if (task.scheduleKind === "daily") return { ...base, dailyTime: task.scheduleValue };
-  if (task.scheduleKind === "once") return { ...base, onceLocal: isoToLocalInput(task.scheduleValue) };
+  if (task.scheduleKind === "once")
+    return { ...base, onceLocal: isoToLocalInput(task.scheduleValue) };
   const seconds = Number(task.scheduleValue);
   if (Number.isFinite(seconds) && seconds > 0 && seconds % 3600 === 0) {
     return { ...base, intervalAmount: String(seconds / 3600), intervalUnit: "hours" };
@@ -137,7 +138,9 @@ function scheduleValueFromDraft(draft: Draft): string | null {
 }
 
 function isValidDraft(draft: Draft): boolean {
-  return draft.name.trim() !== "" && draft.prompt.trim() !== "" && scheduleValueFromDraft(draft) !== null;
+  return (
+    draft.name.trim() !== "" && draft.prompt.trim() !== "" && scheduleValueFromDraft(draft) !== null
+  );
 }
 
 function agentName(agents: Agent[], agentId: number | null): string {
@@ -310,7 +313,9 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
               <Field label="Zeitplan-Art">
                 <Select
                   value={draft.kind}
-                  onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value as ScheduleKind }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, kind: e.target.value as ScheduleKind }))
+                  }
                 >
                   {KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -355,7 +360,10 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                       style={{ maxWidth: 140 }}
                       value={draft.intervalUnit}
                       onChange={(e) =>
-                        setDraft((d) => ({ ...d, intervalUnit: e.target.value as "minutes" | "hours" }))
+                        setDraft((d) => ({
+                          ...d,
+                          intervalUnit: e.target.value as "minutes" | "hours",
+                        }))
                       }
                       aria-label="Abstand, Einheit"
                     >
@@ -366,7 +374,10 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                 </Field>
               )}
 
-              <Field label="Prompt" hint="Die Nachricht, die Raider zu diesem Zeitpunkt bearbeitet.">
+              <Field
+                label="Prompt"
+                hint="Die Nachricht, die Raider zu diesem Zeitpunkt bearbeitet."
+              >
                 <Textarea
                   rows={3}
                   value={draft.prompt}
@@ -379,7 +390,10 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                 <Button variant="ghost" onClick={closeForm} disabled={saving}>
                   Abbrechen
                 </Button>
-                <Button onClick={() => void submitDraft()} disabled={saving || !isValidDraft(draft)}>
+                <Button
+                  onClick={() => void submitDraft()}
+                  disabled={saving || !isValidDraft(draft)}
+                >
                   {editingId === "new" ? "Anlegen" : "Speichern"}
                 </Button>
               </div>
@@ -441,7 +455,9 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                 {filteredTasks.map((task) => (
                   <tr key={task.id}>
                     <td>{task.name}</td>
-                    <td className="rd-muted">{describeSchedule(task.scheduleKind, task.scheduleValue)}</td>
+                    <td className="rd-muted">
+                      {describeSchedule(task.scheduleKind, task.scheduleValue)}
+                    </td>
                     <td className="rd-muted">{agentName(agents, task.agentId)}</td>
                     <td>
                       <span className="rd-row" style={{ gap: "0.4rem", alignItems: "center" }}>

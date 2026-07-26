@@ -227,12 +227,7 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
                     <Button variant="ghost" small icon="edit" onClick={() => edit(agent)}>
                       Bearbeiten
                     </Button>
-                    <Button
-                      variant="ghost"
-                      small
-                      icon="copy"
-                      onClick={() => void duplicate(agent)}
-                    >
+                    <Button variant="ghost" small icon="copy" onClick={() => void duplicate(agent)}>
                       Duplizieren
                     </Button>
                     <ConfirmButton small onConfirm={() => void remove(agent)} />
@@ -245,11 +240,7 @@ export function AgentsPanel({ client }: { client: RaiderClient }) {
       )}
 
       <div ref={formRef}>
-        <Card
-          title={
-            editing === null ? "Neuer Agent" : `„${editing.name}" bearbeiten`
-          }
-        >
+        <Card title={editing === null ? "Neuer Agent" : `„${editing.name}" bearbeiten`}>
           <div className="rd-stack">
             {editing !== null && (
               <div className="rd-muted" style={{ fontSize: "0.78rem" }}>

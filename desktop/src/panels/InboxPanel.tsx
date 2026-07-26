@@ -71,13 +71,7 @@ function consequence(write: PendingWrite): string {
  * wird. `ConfirmButton` aus dem Baukasten ist fest auf „Gefahr" eingefärbt,
  * darum hier eine eigene, neutral eingefärbte Variante mit gleichem Ablauf.
  */
-function ApproveButton({
-  onApprove,
-  disabled,
-}: {
-  onApprove: () => void;
-  disabled?: boolean;
-}) {
+function ApproveButton({ onApprove, disabled }: { onApprove: () => void; disabled?: boolean }) {
   const [armed, setArmed] = useState(false);
   if (!armed) {
     return (
@@ -262,9 +256,7 @@ export function InboxPanel({ client }: { client: RaiderClient }) {
                   </div>
                   <div>{consequence(write)}</div>
 
-                  {memory && (
-                    <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{memory.content}</p>
-                  )}
+                  {memory && <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{memory.content}</p>}
 
                   {skill && (
                     <div className="rd-stack rd-stack--tight">
