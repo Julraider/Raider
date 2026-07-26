@@ -24,6 +24,53 @@ export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
  */
 const MAX_TOOL_ROUNDS = 5;
 
+/**
+ * Wie viele Zeichen Gesprächsverlauf höchstens ans Modell gehen.
+ *
+ * Vorher ging der KOMPLETTE Verlauf mit — bei einer langen Sitzung wächst der
+ * damit unbegrenzt, bis der Anbieter die Anfrage ablehnt und gar nichts mehr
+ * geht. Gezählt wird bewusst in Zeichen und nicht in Tokens: Eine echte
+ * Token-Zählung bräuchte je Modell einen eigenen Zerleger, und für eine
+ * Sicherheitsgrenze reicht die grobe Schätzung (rund 4 Zeichen je Token)
+ * vollkommen aus. Der Wert liegt absichtlich weit unter dem, was heutige
+ * Modelle können — er soll nur den Ausreißer abfangen.
+ */
+const DEFAULT_HISTORY_BUDGET_CHARS = 60_000;
+
+/**
+ * Kürzt den Verlauf von hinten: Die jüngsten Nachrichten sind die wichtigsten,
+ * also bleiben sie. Wird gekürzt, bekommt das Modell einen kurzen Hinweis, dass
+ * es den Anfang nicht sieht — sonst behauptet es womöglich, etwas sei nie
+ * gesagt worden.
+ */
+export function trimHistory(
+  messages: ChatMessage[],
+  budget = DEFAULT_HISTORY_BUDGET_CHARS,
+): ChatMessage[] {
+  let used = 0;
+  const kept: ChatMessage[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message) continue;
+    const size = message.content.length;
+    // Die jüngste Nachricht bleibt immer, auch wenn sie allein das Budget sprengt.
+    if (kept.length > 0 && used + size > budget) break;
+    used += size;
+    kept.unshift(message);
+  }
+
+  if (kept.length === messages.length) return kept;
+  return [
+    {
+      role: "user",
+      content:
+        "[Hinweis: Der Anfang dieses Gesprächs ist zu lang geworden und wurde " +
+        "weggelassen. Wenn dir Zusammenhang fehlt, frag bitte nach, statt zu raten.]",
+    },
+    ...kept,
+  ];
+}
+
 /** Optionale Übersteuerungen für einen einzelnen Zug. */
 export interface TurnOptions {
   model?: string;
@@ -58,10 +105,12 @@ async function prepareTurn(
   // Nutzer-Nachricht sofort speichern — sie überlebt auch einen Anbieterfehler.
   addMessage(db, { sessionId: session.id, role: "user", content });
 
-  const conversation: ChatMessage[] = getMessages(db, session.id).map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  const conversation: ChatMessage[] = trimHistory(
+    getMessages(db, session.id).map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  );
 
   const agent = session.agentId !== null ? getAgent(db, session.agentId) : undefined;
   const agentPrompt = agent && agent.systemPrompt.trim() !== "" ? agent.systemPrompt : undefined;
