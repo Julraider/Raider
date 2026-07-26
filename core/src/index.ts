@@ -33,6 +33,9 @@ const migrations = runMigrations(db, migrationsDir);
 // Anbieter anhand der Konfiguration wählen; der Key kommt separat rein.
 const provider = createProvider(config, getAnthropicApiKey());
 const chat: ChatFn = (request) => provider.complete(request);
+// Streamen kann nicht jeder Anbieter — fehlt es, bleibt der Stream-Endpunkt aus
+// und die Oberfläche fällt still auf die normale Antwort zurück.
+const chatStream = provider.stream?.bind(provider);
 
 // Telegram-Token separat lesen (Geheimnis) — nur seine Existenz fließt in die App.
 const telegramToken = getTelegramToken();
@@ -45,6 +48,7 @@ const app = createApp(db, chat, mcpRunner, {
     pairingTtlSeconds: config.telegram.pairingTtlSeconds,
     enabled: telegramToken !== undefined,
   },
+  ...(chatStream ? { chatStream } : {}),
   ops: {
     backupsDir: config.backupsDir,
     backupKeep: config.backupKeep,

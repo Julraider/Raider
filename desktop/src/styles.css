@@ -1129,17 +1129,23 @@ mark {
   white-space: nowrap;
 }
 
-/* Warteanzeiger im Eingabefeld, solange Raider an einer Antwort schreibt. */
-@keyframes rd-spin {
-  to {
-    transform: rotate(360deg);
+/* Blinkender Schreibbalken am Ende der Antwort, solange sie noch entsteht. */
+@keyframes rd-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  95% {
+    opacity: 0;
   }
 }
-.rd-spinner {
-  width: 17px;
-  height: 17px;
-  border: 2px solid var(--border);
-  border-top-color: var(--muted);
-  border-radius: 50%;
-  animation: rd-spin 700ms linear infinite;
+.rd-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--muted);
+  animation: rd-blink 1s steps(1, end) infinite;
 }

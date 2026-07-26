@@ -82,6 +82,17 @@ function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 }
 
+/**
+ * Ein Ereignis auf dem Weg zur fertigen Antwort. `text` kommt oft und in
+ * kleinen Stücken, `tool` meldet einen laufenden Werkzeugaufruf, `done` kommt
+ * genau einmal am Schluss.
+ */
+export type StreamEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; phase: "start" | "done"; isError?: boolean }
+  | { type: "done"; response: ChatResponse }
+  | { type: "error"; message: string };
+
 /** Ein an eine Basis-URL gebundener Client für die Core-API. */
 export interface RaiderClient {
   status(): Promise<unknown>;
@@ -90,6 +101,15 @@ export interface RaiderClient {
   listSessions(): Promise<SessionListResponse>;
   getMessages(sessionId: number): Promise<SessionMessagesResponse>;
   sendMessage(sessionId: number, input: PostMessageRequest): Promise<ChatResponse>;
+  /**
+   * Wie `sendMessage`, liefert die Antwort aber stückweise, während sie
+   * entsteht. `signal` bricht die laufende Antwort ab.
+   */
+  streamMessage(
+    sessionId: number,
+    input: PostMessageRequest,
+    signal?: AbortSignal,
+  ): AsyncIterable<StreamEvent>;
   search(query: string): Promise<SearchResponse>;
   createAgent(input: CreateAgentRequest): Promise<Agent>;
   listAgents(): Promise<AgentListResponse>;
@@ -156,6 +176,8 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<SessionMessagesResponse>(`${base}/sessions/${sessionId}/messages`),
     sendMessage: (sessionId, input) =>
       requestJson<ChatResponse>(`${base}/sessions/${sessionId}/messages`, jsonInit("POST", input)),
+    streamMessage: (sessionId, input, signal) =>
+      streamMessages(`${base}/sessions/${sessionId}/messages/stream`, input, signal),
     search: (query) => requestJson<SearchResponse>(`${base}/search?q=${encodeURIComponent(query)}`),
     createAgent: (input) => requestJson<Agent>(`${base}/agents`, jsonInit("POST", input)),
     listAgents: () => requestJson<AgentListResponse>(`${base}/agents`),
@@ -251,4 +273,67 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
     createBackup: () => requestJson<BackupInfo>(`${base}/backup`, jsonInit("POST", {})),
     listBackups: () => requestJson<BackupListResponse>(`${base}/backups`),
   };
+}
+
+/**
+ * Liest den SSE-Strom des Cores und gibt jedes Ereignis einzeln zurück.
+ *
+ * Bewusst ohne EventSource: Der Endpunkt braucht POST mit Körper, das kann
+ * EventSource nicht. Zeilen können über Paketgrenzen zerschnitten ankommen —
+ * darum der Puffer.
+ */
+async function* streamMessages(
+  url: string,
+  input: PostMessageRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const data = (await response.json()) as { error?: string };
+      message = data.error ?? message;
+    } catch {
+      // Keine JSON-Fehlermeldung — der Statustext muss reichen.
+    }
+    throw new ApiError(response.status, message);
+  }
+  if (!response.body) {
+    throw new ApiError(502, "Antwort ohne Datenstrom erhalten.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line.startsWith("data:")) {
+          const payload = line.slice(5).trim();
+          if (payload !== "") {
+            try {
+              yield JSON.parse(payload) as StreamEvent;
+            } catch {
+              // Unvollständige Nutzlast überspringen statt abzubrechen.
+            }
+          }
+        }
+        newline = buffer.indexOf("\n");
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

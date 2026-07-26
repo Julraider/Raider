@@ -13,6 +13,7 @@ import {
   toToolDefinitions,
 } from "../mcp/registry";
 import type { McpRunner } from "../mcp/types";
+import type { StreamChunk } from "../providers/provider";
 
 /** Ruft ein Modell auf und liefert die Antwort im internen Format. */
 export type ChatFn = (request: ChatRequest) => Promise<ChatResponse>;
@@ -34,23 +35,30 @@ export interface TurnOptions {
   tools?: McpRunner;
 }
 
+/** Was ein Zug an Vorbereitung braucht: Verlauf, Anfrage-Grundlage, Werkzeuge. */
+interface PreparedTurn {
+  conversation: ChatMessage[];
+  base: Omit<ChatRequest, "messages">;
+  permitted: PermittedTool[];
+}
+
 /**
- * Ein vollständiger Dialog-Zug für eine Sitzung: Nutzer-Nachricht speichern,
- * Kontext (Agent-Prompt + Kerngedächtnis + Skills) bauen, Modell aufrufen,
- * Antwort speichern. Eine Stelle für HTTP-Route und Telegram-Gateway, damit
- * beide Kanäle dieselbe Logik teilen.
+ * Speichert die Nutzer-Nachricht und baut alles zusammen, was der Modellaufruf
+ * braucht: Verlauf, Systemprompt (Agent + Kerngedächtnis + Skills), Modell und
+ * den Katalog der freigegebenen Werkzeuge. Von der normalen und der
+ * streamenden Variante gemeinsam genutzt, damit beide Wege garantiert denselben
+ * Kontext sehen.
  */
-export async function runSessionTurn(
+async function prepareTurn(
   db: Db,
-  chat: ChatFn,
   session: Session,
   content: string,
-  options: TurnOptions = {},
-): Promise<ChatResponse> {
+  options: TurnOptions,
+): Promise<PreparedTurn> {
   // Nutzer-Nachricht sofort speichern — sie überlebt auch einen Anbieterfehler.
   addMessage(db, { sessionId: session.id, role: "user", content });
 
-  const history: ChatMessage[] = getMessages(db, session.id).map((message) => ({
+  const conversation: ChatMessage[] = getMessages(db, session.id).map((message) => ({
     role: message.role,
     content: message.content,
   }));
@@ -72,16 +80,32 @@ export async function runSessionTurn(
   const permitted = options.tools ? await collectPermittedTools(db, options.tools) : [];
   const toolDefs = toToolDefinitions(permitted);
 
-  const base = {
-    ...(system ? { system } : {}),
-    ...(model ? { model } : {}),
-    ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
-    ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+  return {
+    conversation,
+    permitted,
+    base: {
+      ...(system ? { system } : {}),
+      ...(model ? { model } : {}),
+      ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
+      ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+    },
   };
+}
 
-  // Laufender Gesprächsverlauf für diesen Zug — Werkzeugrunden hängen hier an,
-  // ohne die gespeicherte Historie mit Zwischenschritten zu überfrachten.
-  const conversation: ChatMessage[] = [...history];
+/**
+ * Ein vollständiger Dialog-Zug für eine Sitzung: Nutzer-Nachricht speichern,
+ * Kontext (Agent-Prompt + Kerngedächtnis + Skills) bauen, Modell aufrufen,
+ * Antwort speichern. Eine Stelle für HTTP-Route und Telegram-Gateway, damit
+ * beide Kanäle dieselbe Logik teilen.
+ */
+export async function runSessionTurn(
+  db: Db,
+  chat: ChatFn,
+  session: Session,
+  content: string,
+  options: TurnOptions = {},
+): Promise<ChatResponse> {
+  const { conversation, base, permitted } = await prepareTurn(db, session, content, options);
   let response = await chat({ messages: conversation, ...base });
   let totalIn = response.usage.inputTokens;
   let totalOut = response.usage.outputTokens;
@@ -200,4 +224,97 @@ export function buildMemoryContext(db: Db): string | undefined {
     parts.push(`## Notizen\n${agentNotes.map((entry) => `- ${entry.content}`).join("\n")}`);
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+/* --------------------------------------------------------------------------
+ * Streamender Zug: gleiche Vorbereitung, gleiche Werkzeugschleife — nur wird
+ * der Text ausgegeben, während er entsteht, statt erst am Ende.
+ * ----------------------------------------------------------------------- */
+
+/** Ein Ereignis auf dem Weg zur fertigen Antwort. */
+export type TurnEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; phase: "start" | "done"; isError?: boolean }
+  | { type: "done"; response: ChatResponse };
+
+/** Ein Anbieter, der stückweise antworten kann. */
+export type ChatStreamFn = (request: ChatRequest) => AsyncIterable<StreamChunk>;
+
+/**
+ * Wie `runSessionTurn`, gibt die Antwort aber stückweise aus. Gespeichert wird
+ * erst am Ende und nur einmal — bricht der Stream ab, steht keine halbe Antwort
+ * in der Datenbank.
+ */
+export async function* runSessionTurnStreamed(
+  db: Db,
+  chatStream: ChatStreamFn,
+  session: Session,
+  content: string,
+  options: TurnOptions = {},
+): AsyncGenerator<TurnEvent> {
+  const { conversation, base, permitted } = await prepareTurn(db, session, content, options);
+
+  let answer = "";
+  let totalIn = 0;
+  let totalOut = 0;
+  let last: ChatResponse | undefined;
+
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    let response: ChatResponse | undefined;
+
+    for await (const chunk of chatStream({ messages: conversation, ...base })) {
+      if (chunk.type === "text") {
+        answer += chunk.text;
+        yield { type: "text", text: chunk.text };
+      } else {
+        response = chunk.response;
+      }
+    }
+    if (!response) break;
+
+    last = response;
+    totalIn += response.usage.inputTokens;
+    totalOut += response.usage.outputTokens;
+
+    const uses = response.toolUses ?? [];
+    const runner = options.tools;
+    if (uses.length === 0 || !runner) break;
+
+    // Obergrenze erreicht: ehrlich abbrechen statt weiterzulaufen.
+    if (round === MAX_TOOL_ROUNDS) {
+      const note = `\n\n_(Abgebrochen: Raider hat die Obergrenze von ${MAX_TOOL_ROUNDS} Werkzeugrunden für eine Antwort erreicht.)_`;
+      answer += note;
+      yield { type: "text", text: note };
+      break;
+    }
+
+    conversation.push({ role: "assistant", content: response.content, toolUses: uses });
+
+    const results: ToolResult[] = [];
+    for (const use of uses) {
+      yield { type: "tool", name: use.name, phase: "start" };
+      const result = await executeTool(db, runner, permitted, use.id, use.name, use.input);
+      yield { type: "tool", name: use.name, phase: "done", isError: result.isError };
+      results.push(result);
+    }
+    conversation.push({ role: "user", content: "", toolResults: results });
+  }
+
+  const final: ChatResponse = {
+    role: "assistant",
+    content: answer,
+    model: last?.model ?? "unbekannt",
+    stopReason: last?.stopReason ?? null,
+    usage: { inputTokens: totalIn, outputTokens: totalOut },
+  };
+
+  addMessage(db, {
+    sessionId: session.id,
+    role: "assistant",
+    content: answer,
+    tokensIn: totalIn,
+    tokensOut: totalOut,
+  });
+
+  yield { type: "done", response: final };
 }

@@ -26,6 +26,14 @@ function clock(iso: string): string {
     : d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Macht aus dem technischen Werkzeugnamen (`Server__werkzeug`) etwas Lesbares.
+ */
+function toolLabel(flatName: string): string {
+  const [server, tool] = flatName.split("__");
+  return tool ? `${tool} (${server})` : flatName;
+}
+
 /** Titel einer Sitzung für die Verlaufsliste. */
 function sessionLabel(session: Session): string {
   if (session.title && session.title.trim() !== "") return session.title;
@@ -47,9 +55,14 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  /** Text der Antwort, während sie noch entsteht. */
+  const [live, setLive] = useState("");
+  /** Kurzer Hinweis, welches Werkzeug Raider gerade benutzt. */
+  const [toolNote, setToolNote] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadSessions = useCallback(async (): Promise<Session[]> => {
     const result = await client.listSessions();
@@ -114,6 +127,13 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
     box?.scrollTo({ top: box.scrollHeight });
   }, [messages]);
 
+  // Während geschrieben wird, mitscrollen.
+  useEffect(() => {
+    if (live === "") return;
+    const box = scrollRef.current;
+    box?.scrollTo({ top: box.scrollHeight });
+  }, [live]);
+
   /** Neuer Chat mit dem aktuell gewählten Agenten — löscht nichts, der alte Chat bleibt im Verlauf. */
   async function newChat(): Promise<void> {
     setError(null);
@@ -133,22 +153,74 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
     setMessages(result.messages);
   }
 
+  /**
+   * Sendet eine Nachricht und zeigt die Antwort, während sie entsteht.
+   *
+   * Der Core streamt; kann er das nicht (Anbieter ohne Streaming, Statuscode
+   * 501), fällt diese Funktion still auf die normale Antwort am Stück zurück —
+   * der Nutzer merkt davon nichts außer der längeren Wartezeit.
+   */
   async function send(text: string): Promise<void> {
     const content = text.trim();
     if (content === "" || sessionId === null || busy) return;
+    const id = sessionId;
+
     setInput("");
     setError(null);
     setBusy(true);
+    setLive("");
+    setToolNote(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      await client.sendMessage(sessionId, { content });
-      await refresh(sessionId);
-      await loadSessions().catch(() => undefined); // Titel/Reihenfolge aktualisieren.
+      let streamed = false;
+      for await (const event of client.streamMessage(id, { content }, controller.signal)) {
+        streamed = true;
+        if (event.type === "text") {
+          setLive((current) => current + event.text);
+        } else if (event.type === "tool") {
+          setToolNote(
+            event.phase === "start"
+              ? `Benutzt gerade „${toolLabel(event.name)}“…`
+              : event.isError
+                ? `„${toolLabel(event.name)}“ hat einen Fehler gemeldet.`
+                : null,
+          );
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
+      }
+      if (!streamed) throw new Error("Kein Datenstrom erhalten.");
     } catch (err) {
-      await refresh(sessionId).catch(() => undefined);
-      setError(errorText(err));
+      // Abbruch durch den Nutzer ist kein Fehler.
+      if (!controller.signal.aborted) {
+        const status = (err as { status?: number } | undefined)?.status;
+        if (status === 501) {
+          // Anbieter kann nicht streamen — normaler Weg.
+          try {
+            await client.sendMessage(id, { content });
+          } catch (fallbackError) {
+            setError(errorText(fallbackError));
+          }
+        } else {
+          setError(errorText(err));
+        }
+      }
     } finally {
+      abortRef.current = null;
+      setLive("");
+      setToolNote(null);
       setBusy(false);
+      await refresh(id).catch(() => undefined);
+      await loadSessions().catch(() => undefined); // Titel/Reihenfolge aktualisieren.
     }
+  }
+
+  /** Bricht die laufende Antwort ab. Das bereits Geschriebene bleibt gespeichert. */
+  function stop(): void {
+    abortRef.current?.abort();
   }
 
   /** Antwort neu erzeugen: die vorausgehende Nutzerfrage erneut senden. */
@@ -178,7 +250,9 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
       event.preventDefault();
       void send(input);
     } else if (event.key === "Escape") {
-      setInput("");
+      // Läuft gerade eine Antwort, ist Esc der schnellste Weg zum Abbruch.
+      if (busy) stop();
+      else setInput("");
     }
   }
 
@@ -313,8 +387,18 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
             <div style={styles.msg}>
               <div style={styles.msgHead}>
                 <span style={styles.role}>Raider</span>
+                {toolNote !== null && <span style={styles.time}>{toolNote}</span>}
               </div>
-              <div style={{ ...styles.answer, ...ui.muted }}>Denkt nach…</div>
+              <div style={styles.answer}>
+                {live === "" ? (
+                  <span style={ui.muted}>{toolNote ?? "Schreibt…"}</span>
+                ) : (
+                  <>
+                    <Markdown content={live} />
+                    <span className="rd-caret" aria-hidden="true" />
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -338,15 +422,20 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
               aria-label="Nachricht"
             />
             {/*
-             * Waehrend gewartet wird, steht hier bewusst KEIN Stopp-Symbol: Der
-             * Knopf koennte den laufenden Aufruf gar nicht abbrechen, und ein
-             * Symbol, das Abbrechen verspricht und nichts tut, ist schlimmer als
-             * keins. Stattdessen ein reiner Warteanzeiger.
+             * Waehrend geschrieben wird, bricht dieser Knopf die Antwort
+             * wirklich ab (AbortController) — frueher war das Stopp-Symbol nur
+             * Zierde an einem abgeschalteten Knopf.
              */}
             {busy ? (
-              <span style={styles.waiting} role="status" aria-label="Raider antwortet gerade">
-                <span className="rd-spinner" />
-              </span>
+              <button
+                type="button"
+                style={styles.send}
+                onClick={stop}
+                aria-label="Antwort abbrechen"
+                title="Antwort abbrechen"
+              >
+                <Icon name="stop" size={16} />
+              </button>
             ) : (
               <button
                 type="button"
@@ -455,14 +544,6 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
   sendOff: { opacity: 0.4, cursor: "default" },
-  waiting: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 36,
-    height: 36,
-    flexShrink: 0,
-  },
   hint: {
     maxWidth: "var(--measure)",
     margin: "0.5rem auto 0",

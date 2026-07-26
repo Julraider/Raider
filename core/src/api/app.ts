@@ -43,7 +43,13 @@ import type {
 } from "@raider/shared";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
-import { type ChatFn, runSessionTurn } from "../chat/turn";
+import { streamSSE } from "hono/streaming";
+import {
+  type ChatFn,
+  type ChatStreamFn,
+  runSessionTurn,
+  runSessionTurnStreamed,
+} from "../chat/turn";
 import type { MemoryLimits } from "../config";
 
 /** Konfiguration, die die API zur Laufzeit braucht. */
@@ -56,6 +62,11 @@ export interface AppConfig {
     /** Ob ein Bot-Token gesetzt ist (der Token selbst bleibt im Core). */
     enabled: boolean;
   };
+  /**
+   * Streamende Modellanbindung. Fehlt sie, gibt es den Stream-Endpunkt nicht
+   * und Clients fallen automatisch auf die normale Antwort zurück.
+   */
+  chatStream?: ChatStreamFn;
   /** Betrieb: Sicherungen, Logging und Angaben für den Gesundheitscheck. */
   ops: {
     backupsDir: string;
@@ -287,6 +298,47 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     } catch (error) {
       return chatErrorResponse(c, error);
     }
+  });
+
+  /**
+   * Wie POST /sessions/:id/messages, liefert die Antwort aber stückweise
+   * (Server-Sent Events), damit sie im Fenster Wort für Wort erscheint.
+   * Ereignisse: `text` (Stück), `tool` (Werkzeug läuft), `done` (fertig),
+   * `error` (abgebrochen).
+   */
+  app.post("/sessions/:id/messages/stream", async (c) => {
+    const streamChat = config.chatStream;
+    if (!streamChat) return c.json({ error: "Dieser Anbieter kann nicht streamen." }, 501);
+
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Sitzungs-ID." }, 400);
+    const session = getSession(db, id);
+    if (!session) return c.json({ error: "Sitzung nicht gefunden." }, 404);
+
+    const body = await readJson<PostMessageRequest>(c);
+    const content = body?.content?.trim();
+    if (!content) return c.json({ error: "Feld 'content' darf nicht leer sein." }, 400);
+
+    const events = runSessionTurnStreamed(db, streamChat, session, content, {
+      ...(body?.model ? { model: body.model } : {}),
+      ...(body?.maxTokens ? { maxTokens: body.maxTokens } : {}),
+      tools: mcp,
+    });
+
+    return streamSSE(c, async (sse) => {
+      try {
+        for await (const event of events) {
+          await sse.writeSSE({ event: event.type, data: JSON.stringify(event) });
+        }
+      } catch (error) {
+        // Der Fehler muss über den offenen Strom gemeldet werden — ein
+        // HTTP-Status ist zu diesem Zeitpunkt längst gesendet.
+        await sse.writeSSE({
+          event: "error",
+          data: JSON.stringify({ message: messageOf(error) }),
+        });
+      }
+    });
   });
 
   app.get("/search", (c) => {
