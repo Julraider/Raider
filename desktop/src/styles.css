@@ -38,6 +38,9 @@
   --dur-1: 120ms;
   --dur-2: 200ms;
   --measure: 680px; /* lesbare Zeilenbreite für Antworten */
+  /* Einheitliche Schreibmaschinenschrift für Code, Kennungen und Zahlen. */
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
 }
 
 :root[data-theme="dark"] {
@@ -97,12 +100,22 @@ body,
   height: 100%;
   margin: 0;
 }
+/*
+ * Schrift: bewusst die Systemschrift des jeweiligen Rechners (SF auf dem Mac,
+ * Segoe UI unter Windows, Roboto unter Linux). Raider ist ein Programm für den
+ * eigenen Rechner — mit der Systemschrift fügt es sich dort natürlich ein, lädt
+ * nichts nach und bleibt auch ohne Internet gleich.
+ */
 body {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
 button {
   font-family: inherit;
 }
@@ -249,8 +262,7 @@ button:hover {
 }
 /* Inline-Code (nicht in Codeblöcken). */
 .rd-md :not(pre) > code {
-  font-family:
-    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.86em;
   padding: 0.12em 0.4em;
   border-radius: 5px;
@@ -327,8 +339,7 @@ button:hover {
   margin: 0;
   padding: 0.85rem 1rem;
   overflow-x: auto;
-  font-family:
-    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.84rem;
   line-height: 1.55;
   color: var(--text);
@@ -719,7 +730,7 @@ button:hover {
   font-size: 0.85rem;
 }
 .rd-mono {
-  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
 }
 .rd-truncate {
@@ -1048,4 +1059,13 @@ textarea.rd-control {
   border-radius: 4px;
   padding: 0.05rem 0.35rem;
   background: var(--bg);
+}
+
+/* Fundstellen in Suchtreffern — ruhig hervorgehoben, nicht grell. */
+mark {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+  font-weight: 650;
+  padding: 0 0.15em;
+  border-radius: 3px;
 }
