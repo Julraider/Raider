@@ -12,6 +12,7 @@ import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
 import { createReviewRunner } from "./review/reviewer";
 import { createScheduler } from "./scheduler/runner";
+import { ensureAccessToken, tokenPath } from "./security/token";
 import { createTelegramApi } from "./telegram/api";
 import { createTelegramGateway } from "./telegram/gateway";
 import { version } from "./version";
@@ -40,6 +41,9 @@ const chatStream = provider.stream?.bind(provider);
 // Telegram-Token separat lesen (Geheimnis) — nur seine Existenz fließt in die App.
 const telegramToken = getTelegramToken();
 
+// Zugriffstoken beim ersten Start anlegen; danach nur noch gelesen.
+const accessToken = ensureAccessToken(config.dataDir);
+
 const mcpRunner = createMcpRunner();
 const app = createApp(db, chat, mcpRunner, {
   memoryLimits: config.memory,
@@ -48,6 +52,7 @@ const app = createApp(db, chat, mcpRunner, {
     pairingTtlSeconds: config.telegram.pairingTtlSeconds,
     enabled: telegramToken !== undefined,
   },
+  accessToken,
   ...(chatStream ? { chatStream } : {}),
   ops: {
     backupsDir: config.backupsDir,
@@ -83,6 +88,8 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => 
     );
   }
   console.log(`Datenbank: ${config.databasePath} (${migrations.applied} Migrationen angewendet)`);
+  // Nur den PFAD ausgeben, niemals das Token selbst.
+  console.log(`Zugriffstoken: ${tokenPath(config.dataDir)}`);
   console.log(`Anbieter: ${describeProvider()}`);
   console.log(
     `Telegram: ${telegramToken ? "aktiv (koppeln: npm run telegram -- pair)" : "aus (RAIDER_TELEGRAM_TOKEN fehlt)"}`,

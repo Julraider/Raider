@@ -74,6 +74,30 @@ Ein Monorepo mit npm-Workspaces — je ein Paket pro Baustein aus dem Spec:
 > setzen (z. B. 4190) — das eingebaute `fetch` verweigert solche Ports. Der
 > Standard 4179 ist frei.
 
+## Zugriffsschutz
+
+Die lokale API ist durch ein **Zugriffstoken** geschützt. Der Core legt es beim
+ersten Start selbst an:
+
+    <Datenordner>/.access-token       (Rechte 0600 — nur du darfst es lesen)
+
+Warum: Dass der Core nur auf `127.0.0.1` lauscht, hält fremde Geräte fern —
+aber nicht andere Programme auf demselben Rechner und auch keine Webseite, die
+im Browser heimlich Anfragen an `localhost` schickt. Ohne gültiges Token
+antwortet die API mit `401`. Ausgenommen ist nur `GET /status`, damit
+Startskripte prüfen können, ob der Core schon läuft.
+
+Fenster und CLI holen sich das Token selbst aus dem Datenordner — du musst
+nichts eintragen. Für eigene Aufrufe:
+
+    curl -H "Authorization: Bearer $(cat ~/Raider/.access-token)" \
+      http://localhost:4179/sessions
+
+Zusätzlich nimmt die API nur Anfragen von deinem eigenen Rechner an: CORS ist
+auf `localhost`/`127.0.0.1` und Aufrufe ohne Origin beschränkt. Vorher wurde
+jeder Origin zurückgespiegelt.
+
+
 ## Anbieter
 
 Zwei Anbieter hinter derselben internen Schnittstelle:

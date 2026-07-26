@@ -67,6 +67,11 @@ export interface AppConfig {
    * und Clients fallen automatisch auf die normale Antwort zurück.
    */
   chatStream?: ChatStreamFn;
+  /**
+   * Zugriffstoken für die lokale API. Fehlt es, ist die API ungeschützt —
+   * das gibt es nur in Tests, im Betrieb setzt der Core es immer.
+   */
+  accessToken?: string;
   /** Betrieb: Sicherungen, Logging und Angaben für den Gesundheitscheck. */
   ops: {
     backupsDir: string;
@@ -158,9 +163,20 @@ import type { McpRunner } from "../mcp/types";
 import { MissingApiKeyError, ProviderError } from "../providers/errors";
 import { runReview } from "../review/reviewer";
 import { runScheduledTask } from "../scheduler/runner";
+import { tokensMatch } from "../security/token";
 import { version } from "../version";
 
 export type { ChatFn } from "../chat/turn";
+
+/** Gehört dieser Origin zum eigenen Rechner? */
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Baut die lokale API. Bewusst als Fabrik: Tests bekommen so eine App gegen
@@ -172,9 +188,49 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
   const limitFor = (store: "agent" | "user") =>
     store === "agent" ? config.memoryLimits.agent : config.memoryLimits.user;
 
-  // Lokale Clients (auch der Electron-Renderer im Browser) dürfen zugreifen.
-  // Der Core lauscht ohnehin nur auf localhost.
-  app.use("*", cors({ origin: (origin) => origin ?? "*" }));
+  /*
+   * CORS bewusst eng: Vorher wurde JEDER Origin zurückgespiegelt. Damit konnte
+   * eine beliebige Webseite im Browser des Nutzers mit dem Core sprechen und
+   * dessen Antworten auch lesen. Erlaubt sind jetzt nur noch Aufrufe ohne
+   * Origin (Electron lädt über file://, CLI schickt gar keinen) und Adressen
+   * auf dem eigenen Rechner.
+   */
+  app.use(
+    "*",
+    cors({
+      origin: (origin) => (origin === undefined || isLocalOrigin(origin) ? (origin ?? "*") : ""),
+      allowHeaders: ["content-type", "authorization", "x-raider-token"],
+    }),
+  );
+
+  /*
+   * Zugriffstoken: Der Core hört zwar nur auf 127.0.0.1, aber das schützt nur
+   * vor fremden Geräten — nicht vor anderen Programmen auf demselben Rechner.
+   * Ohne gültiges Token gibt es deshalb keine Daten. Ausgenommen ist allein
+   * /status, damit Startskripte prüfen können, ob der Core schon läuft; die
+   * Route verrät nichts Persönliches.
+   */
+  if (config.accessToken) {
+    const expected = config.accessToken;
+    app.use("*", async (c, next) => {
+      if (c.req.path === "/status" || c.req.method === "OPTIONS") return next();
+
+      const header = c.req.header("authorization");
+      const bearer = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
+      const supplied = bearer ?? c.req.header("x-raider-token");
+
+      if (!supplied || !tokensMatch(supplied, expected)) {
+        return c.json(
+          {
+            error:
+              "Kein gültiges Zugriffstoken. Es steht in der Datei .access-token in deinem Raider-Ordner.",
+          },
+          401,
+        );
+      }
+      return next();
+    });
+  }
 
   // Betrieb: knappes Request-Log (nur Methode/Pfad/Status/Dauer, nie Inhalte).
   if (config.ops.logRequests) {

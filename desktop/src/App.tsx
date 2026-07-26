@@ -1,7 +1,7 @@
 import { createRaiderClient } from "@raider/shared";
 import { useEffect, useMemo, useState } from "react";
 import { type Command, CommandPalette } from "./CommandPalette";
-import { coreBaseUrl } from "./coreUrl";
+import { coreAccessToken, coreBaseUrl } from "./coreUrl";
 import { Icon } from "./icons";
 import { AgentsPanel } from "./panels/AgentsPanel";
 import { ChatPanel } from "./panels/ChatPanel";
@@ -57,7 +57,7 @@ function isMac(): boolean {
  * ist ein dünner Client des Cores — die Logik steckt im Core.
  */
 export function App() {
-  const client = useMemo(() => createRaiderClient(coreBaseUrl()), []);
+  const client = useMemo(() => createRaiderClient(coreBaseUrl(), coreAccessToken()), []);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
   const [version, setVersion] = useState<string | null>(null);

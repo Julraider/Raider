@@ -70,8 +70,15 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function request<T>(
+  url: string,
+  init: RequestInit | undefined,
+  auth: Record<string, string>,
+): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: { ...(init?.headers as Record<string, string> | undefined), ...auth },
+  });
   const data = (await response.json()) as T & { error?: string };
   if (!response.ok) {
     throw new ApiError(response.status, data.error ?? "unbekannt");
@@ -179,8 +186,19 @@ export interface RaiderClient {
 }
 
 /** Baut einen Client gegen `baseUrl` (z. B. http://localhost:4179). */
-export function createRaiderClient(baseUrl: string): RaiderClient {
+export function createRaiderClient(baseUrl: string, accessToken?: string): RaiderClient {
   const base = baseUrl.replace(/\/$/, "");
+  /*
+   * Das Token geht als Kopfzeile mit — nie als Teil der Adresse, sonst stünde
+   * es in Server-Logs und in der Verlaufsliste des Browsers. `requestJson`
+   * überdeckt hier bewusst den Modul-Helfer, damit alle Aufrufe unten
+   * unverändert bleiben und trotzdem angemeldet sind.
+   */
+  const auth: Record<string, string> = accessToken
+    ? { authorization: `Bearer ${accessToken}` }
+    : {};
+  const requestJson = <T>(url: string, init?: RequestInit): Promise<T> =>
+    request<T>(url, init, auth);
   return {
     status: () => requestJson(`${base}/status`),
     chat: (request) => requestJson<ChatResponse>(`${base}/chat`, jsonInit("POST", request)),
@@ -196,7 +214,7 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
     sendMessage: (sessionId, input) =>
       requestJson<ChatResponse>(`${base}/sessions/${sessionId}/messages`, jsonInit("POST", input)),
     streamMessage: (sessionId, input, signal) =>
-      streamMessages(`${base}/sessions/${sessionId}/messages/stream`, input, signal),
+      streamMessages(`${base}/sessions/${sessionId}/messages/stream`, input, auth, signal),
     search: (query) => requestJson<SearchResponse>(`${base}/search?q=${encodeURIComponent(query)}`),
     createAgent: (input) => requestJson<Agent>(`${base}/agents`, jsonInit("POST", input)),
     listAgents: () => requestJson<AgentListResponse>(`${base}/agents`),
@@ -315,11 +333,12 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
 async function* streamMessages(
   url: string,
   input: PostMessageRequest,
+  auth: Record<string, string>,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers: { "content-type": "application/json", accept: "text/event-stream", ...auth },
     body: JSON.stringify(input),
     ...(signal ? { signal } : {}),
   });

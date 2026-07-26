@@ -1,7 +1,25 @@
 // Electron-Hauptprozess. Öffnet das Fenster und lädt den Renderer. Bewusst
 // CommonJS (.cjs), damit es ohne Build-Schritt auf jedem Rechner läuft.
 const { app, BrowserWindow } = require("electron");
+const { existsSync, readFileSync } = require("node:fs");
+const { homedir } = require("node:os");
 const { join } = require("node:path");
+
+/**
+ * Liest das Zugriffstoken des Cores. Es liegt im Datenordner und schuetzt die
+ * lokale API davor, dass andere Programme auf dem Rechner sie benutzen.
+ * Der Renderer darf keine Dateien lesen — deshalb macht das der Hauptprozess
+ * und reicht das Token als Startargument an das Preload weiter.
+ */
+function readAccessToken() {
+  const dataDir = process.env.RAIDER_DATA_DIR || join(homedir(), "Raider");
+  const path = join(dataDir, ".access-token");
+  try {
+    return existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+  } catch {
+    return "";
+  }
+}
 
 // Im Dev-Modus per Umgebungsvariable auf den Vite-Server zeigen, sonst das
 // gebaute index.html laden.
@@ -17,6 +35,7 @@ function createWindow() {
     minHeight: 560,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
+      additionalArguments: [`--raider-token=${readAccessToken()}`],
       // Ausdrücklich gesetzt statt auf die Vorgaben zu vertrauen: Die
       // Oberfläche braucht keinerlei Node-Zugriff, sie spricht nur über die
       // schmale Preload-Brücke mit dem Core.
