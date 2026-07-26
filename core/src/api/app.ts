@@ -123,9 +123,11 @@ import {
 } from "../db/pending";
 import {
   createSession,
+  deleteSession,
   getMessages,
   getSession,
   listSessions,
+  renameSession,
   searchMessages,
 } from "../db/repository";
 import { listReviewRuns } from "../db/review";
@@ -306,6 +308,31 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
    * Ereignisse: `text` (Stück), `tool` (Werkzeug läuft), `done` (fertig),
    * `error` (abgebrochen).
    */
+
+  /** Sitzung umbenennen — die Verlaufsliste soll ordentlich bleiben. */
+  app.patch("/sessions/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Sitzungs-ID." }, 400);
+    if (!getSession(db, id)) return c.json({ error: "Sitzung nicht gefunden." }, 404);
+
+    const body = await readJson<{ title?: string }>(c);
+    if (typeof body?.title !== "string") return c.json({ error: "Feld 'title' fehlt." }, 400);
+
+    const session = renameSession(db, id, body.title);
+    return c.json(session);
+  });
+
+  /**
+   * Sitzung samt Nachrichten löschen. Ohne diesen Weg könnte niemand ein
+   * versehentlich geschriebenes Gespräch wieder loswerden.
+   */
+  app.delete("/sessions/:id", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Sitzungs-ID." }, 400);
+    if (!deleteSession(db, id)) return c.json({ error: "Sitzung nicht gefunden." }, 404);
+    return c.json({ deleted: true });
+  });
+
   app.post("/sessions/:id/messages/stream", async (c) => {
     const streamChat = config.chatStream;
     if (!streamChat) return c.json({ error: "Dieser Anbieter kann nicht streamen." }, 501);

@@ -45,6 +45,7 @@ import type {
   TelegramStatusResponse,
   ToolCall,
   ToolCallListResponse,
+  ToolPermissionListResponse,
   UpdateAgentRequest,
   UpdateMcpServerRequest,
   UpdateMemoryRequest,
@@ -99,6 +100,10 @@ export interface RaiderClient {
   chat(request: ChatRequest): Promise<ChatResponse>;
   createSession(input?: CreateSessionRequest): Promise<Session>;
   listSessions(): Promise<SessionListResponse>;
+  /** Benennt eine Sitzung um; leerer Titel setzt auf den Ersatznamen zurück. */
+  renameSession(sessionId: number, title: string): Promise<Session>;
+  /** Löscht eine Sitzung samt aller Nachrichten. */
+  deleteSession(sessionId: number): Promise<{ deleted: boolean }>;
   getMessages(sessionId: number): Promise<SessionMessagesResponse>;
   sendMessage(sessionId: number, input: PostMessageRequest): Promise<ChatResponse>;
   /**
@@ -122,6 +127,16 @@ export interface RaiderClient {
   updateMcpServer(id: number, patch: UpdateMcpServerRequest): Promise<McpServer>;
   deleteMcpServer(id: number): Promise<{ deleted: boolean }>;
   testMcpServer(id: number): Promise<McpTestResponse>;
+  /** Welche Werkzeuge Raider dauerhaft selbst benutzen darf. */
+  listToolPermissions(): Promise<ToolPermissionListResponse>;
+  /** Erteilt eine Dauerfreigabe für genau ein Werkzeug. */
+  grantToolPermission(
+    serverId: number,
+    toolName: string,
+    grantedBy?: string,
+  ): Promise<{ granted: boolean }>;
+  /** Nimmt eine Dauerfreigabe zurück. */
+  revokeToolPermission(serverId: number, toolName: string): Promise<{ revoked: boolean }>;
   callTool(serverId: number, tool: string, input: CallToolRequest): Promise<ToolCall>;
   listToolCalls(): Promise<ToolCallListResponse>;
   getMemory(store: MemoryStore): Promise<MemoryView>;
@@ -172,6 +187,10 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
     createSession: (input = {}) =>
       requestJson<Session>(`${base}/sessions`, jsonInit("POST", input)),
     listSessions: () => requestJson<SessionListResponse>(`${base}/sessions`),
+    renameSession: (sessionId, title) =>
+      requestJson<Session>(`${base}/sessions/${sessionId}`, jsonInit("PATCH", { title })),
+    deleteSession: (sessionId) =>
+      requestJson<{ deleted: boolean }>(`${base}/sessions/${sessionId}`, { method: "DELETE" }),
     getMessages: (sessionId) =>
       requestJson<SessionMessagesResponse>(`${base}/sessions/${sessionId}/messages`),
     sendMessage: (sessionId, input) =>
@@ -195,6 +214,17 @@ export function createRaiderClient(baseUrl: string): RaiderClient {
       requestJson<McpServer>(`${base}/mcp/servers/${id}`, jsonInit("PATCH", patch)),
     deleteMcpServer: (id) =>
       requestJson<{ deleted: boolean }>(`${base}/mcp/servers/${id}`, jsonInit("DELETE", {})),
+    listToolPermissions: () => requestJson<ToolPermissionListResponse>(`${base}/mcp/permissions`),
+    grantToolPermission: (serverId, toolName, grantedBy) =>
+      requestJson<{ granted: boolean }>(
+        `${base}/mcp/servers/${serverId}/permissions`,
+        jsonInit("POST", { toolName, ...(grantedBy ? { grantedBy } : {}) }),
+      ),
+    revokeToolPermission: (serverId, toolName) =>
+      requestJson<{ revoked: boolean }>(
+        `${base}/mcp/servers/${serverId}/permissions/${encodeURIComponent(toolName)}`,
+        { method: "DELETE" },
+      ),
     testMcpServer: (id) =>
       requestJson<McpTestResponse>(`${base}/mcp/servers/${id}/test`, jsonInit("POST", {})),
     callTool: (serverId, tool, input) =>

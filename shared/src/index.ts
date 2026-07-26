@@ -307,6 +307,20 @@ export interface CallToolRequest {
   approvedBy?: string;
 }
 
+/** Eine Dauerfreigabe: dieses Werkzeug darf Raider von sich aus benutzen. */
+export interface ToolPermission {
+  serverId: number;
+  toolName: string;
+  /** Wer die Freigabe erteilt hat (nur fürs Protokoll). */
+  grantedBy: string | null;
+  createdAt: string;
+}
+
+/** Antwort auf `GET /mcp/permissions`. */
+export interface ToolPermissionListResponse {
+  permissions: ToolPermission[];
+}
+
 export interface ToolCallListResponse {
   toolCalls: ToolCall[];
 }

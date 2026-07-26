@@ -177,3 +177,26 @@ function toMessage(row: MessageRow): StoredMessage {
     createdAt: row.created_at,
   };
 }
+
+/**
+ * Benennt eine Sitzung um. Ein leerer Titel setzt auf „ohne Titel" zurück,
+ * damit die Liste wieder auf den Ersatznamen fällt.
+ */
+export function renameSession(db: Db, id: number, title: string): Session | undefined {
+  const clean = title.trim();
+  db.prepare("UPDATE sessions SET title = ?, updated_at = datetime('now') WHERE id = ?").run(
+    clean === "" ? null : clean,
+    id,
+  );
+  return getSession(db, id);
+}
+
+/**
+ * Löscht eine Sitzung samt Nachrichten. Ohne diese Möglichkeit könnte niemand
+ * ein versehentlich geschriebenes Gespräch wieder loswerden — bei einem
+ * Programm, das mit „läuft lokal, gehört dir" wirbt, wäre das ein Widerspruch.
+ */
+export function deleteSession(db: Db, id: number): boolean {
+  const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  return result.changes > 0;
+}
