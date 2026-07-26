@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { Icon } from "../icons";
-import { ConfirmButton, IconButton, Input } from "../kit";
+import { IconButton, Input } from "../kit";
 import { Markdown } from "../Markdown";
 import { useToast } from "../Toast";
 import { errorText, ui } from "../ui";
@@ -68,6 +68,8 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   const [live, setLive] = useState("");
   /** Kurzer Hinweis, welches Werkzeug Raider gerade benutzt. */
   const [toolNote, setToolNote] = useState<string | null>(null);
+  /** Welches Gespräch gerade auf die Löschbestätigung wartet. */
+  const [confirmId, setConfirmId] = useState<number | null>(null);
   /** Sitzung, deren Titel gerade bearbeitet wird (Eingabefeld an Ort und Stelle). */
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -384,7 +386,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
             )}
             {sessions.map((s) =>
               editingId === s.id ? (
-                <div key={s.id} style={styles.histRow}>
+                <div key={s.id} className="rd-hist-row" style={styles.histRow}>
                   <Input
                     autoFocus
                     value={editValue}
@@ -416,7 +418,7 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
                   />
                 </div>
               ) : (
-                <div key={s.id} style={styles.histRow}>
+                <div key={s.id} className="rd-hist-row" style={styles.histRow}>
                   <button
                     type="button"
                     className="rd-hist-item"
@@ -428,13 +430,47 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
                   >
                     {sessionLabel(s)}
                   </button>
-                  <IconButton
-                    icon="edit"
-                    label="Umbenennen"
-                    onClick={() => startRename(s)}
-                    style={styles.histIconBtn}
-                  />
-                  <ConfirmButton small onConfirm={() => void removeSession(s)} />
+                  {/*
+                   * Die Aktionen erscheinen erst beim Überfahren: Ein
+                   * ausgeschriebener „Löschen"-Knopf in jeder Zeile drückte den
+                   * Titel auf „Vektor-I…" zusammen — und der Titel ist das
+                   * Einzige, wonach man ein Gespräch wiederfindet.
+                   */}
+                  <span className="rd-hist-actions">
+                    <IconButton
+                      icon="edit"
+                      label="Umbenennen"
+                      onClick={() => startRename(s)}
+                      style={styles.histIconBtn}
+                    />
+                    {confirmId === s.id ? (
+                      <>
+                        <IconButton
+                          icon="check"
+                          label="Wirklich löschen"
+                          variant="danger"
+                          onClick={() => {
+                            setConfirmId(null);
+                            void removeSession(s);
+                          }}
+                          style={styles.histIconBtn}
+                        />
+                        <IconButton
+                          icon="x"
+                          label="Abbrechen"
+                          onClick={() => setConfirmId(null)}
+                          style={styles.histIconBtn}
+                        />
+                      </>
+                    ) : (
+                      <IconButton
+                        icon="trash"
+                        label="Gespräch löschen"
+                        onClick={() => setConfirmId(s.id)}
+                        style={styles.histIconBtn}
+                      />
+                    )}
+                  </span>
                 </div>
               ),
             )}

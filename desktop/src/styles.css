@@ -1149,3 +1149,21 @@ mark {
   background: var(--muted);
   animation: rd-blink 1s steps(1, end) infinite;
 }
+
+/*
+ * Aktionen in der Gesprächsliste erscheinen erst beim Überfahren. Sonst
+ * drängen sie den Titel weg — und der Titel ist das Einzige, wonach man ein
+ * Gespräch wiederfindet.
+ */
+.rd-hist-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.rd-hist-row:hover .rd-hist-actions,
+.rd-hist-row:focus-within .rd-hist-actions {
+  opacity: 1;
+}
