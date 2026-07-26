@@ -37,7 +37,8 @@ const chat: ChatFn = (request) => provider.complete(request);
 // Telegram-Token separat lesen (Geheimnis) — nur seine Existenz fließt in die App.
 const telegramToken = getTelegramToken();
 
-const app = createApp(db, chat, createMcpRunner(), {
+const mcpRunner = createMcpRunner();
+const app = createApp(db, chat, mcpRunner, {
   memoryLimits: config.memory,
   skillsDir: config.skillsDir,
   telegram: {
@@ -102,7 +103,7 @@ if (telegramToken) {
 }
 
 // Scheduler läuft immer mit; er prüft vor jedem Lauf den Not-Stopp selbst.
-const scheduler = createScheduler({ db, chat });
+const scheduler = createScheduler({ db, chat, tools: mcpRunner });
 scheduler.start();
 shutdownTasks.push(() => scheduler.stop());
 

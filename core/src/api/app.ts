@@ -86,9 +86,12 @@ import {
   deleteMcpServer,
   getMcpServer,
   getMcpServerConfig,
+  grantToolPermission,
   listMcpServers,
   listToolCalls,
+  listToolPermissions,
   recordToolCall,
+  revokeToolPermission,
   updateMcpServer,
 } from "../db/mcp";
 import {
@@ -276,6 +279,9 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
       const response = await runSessionTurn(db, chat, session, content, {
         ...(body?.model ? { model: body.model } : {}),
         ...(body?.maxTokens ? { maxTokens: body.maxTokens } : {}),
+        // Raider darf dabei die Werkzeuge benutzen, die dauerhaft freigegeben
+        // sind — nur diese sieht das Modell überhaupt.
+        tools: mcp,
       });
       return c.json(response);
     } catch (error) {
@@ -405,6 +411,40 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     } catch (error) {
       return c.json({ error: `Verbindung fehlgeschlagen: ${messageOf(error)}` }, 502);
     }
+  });
+
+  /* ---------------------------------------------------------------------
+   * Dauerfreigaben: welche Werkzeuge Raider von sich aus benutzen darf.
+   *
+   * Ohne Eintrag hier bekommt das Modell ein Werkzeug gar nicht zu sehen —
+   * die Freigabe ist also die einzige Stelle, an der aus einem verbundenen
+   * Server eine Fähigkeit des Assistenten wird.
+   * ------------------------------------------------------------------- */
+
+  app.get("/mcp/permissions", (c) => {
+    return c.json({ permissions: listToolPermissions(db) });
+  });
+
+  app.post("/mcp/servers/:id/permissions", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    if (!getMcpServer(db, id)) return c.json({ error: "Server nicht gefunden." }, 404);
+
+    const body = await readJson<{ toolName?: string; grantedBy?: string }>(c);
+    const toolName = body?.toolName?.trim();
+    if (!toolName) return c.json({ error: "Feld 'toolName' fehlt." }, 400);
+
+    grantToolPermission(db, id, toolName, body?.grantedBy?.trim() || null);
+    return c.json({ granted: true, serverId: id, toolName }, 201);
+  });
+
+  app.delete("/mcp/servers/:id/permissions/:tool", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (id === null) return c.json({ error: "Ungültige Server-ID." }, 400);
+    const toolName = c.req.param("tool");
+    const revoked = revokeToolPermission(db, id, toolName);
+    if (!revoked) return c.json({ error: "Freigabe nicht gefunden." }, 404);
+    return c.json({ revoked: true });
   });
 
   // Werkzeugaufruf — nur mit Freigabe (approvedBy).
@@ -748,7 +788,7 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
     const task = getScheduledTask(db, id);
     if (!task) return c.json({ error: "Aufgabe nicht gefunden." }, 404);
     try {
-      const sessionId = await runScheduledTask(db, chat, task);
+      const sessionId = await runScheduledTask(db, chat, task, new Date(), mcp);
       const body: RunTaskResponse = { sessionId, ran: true };
       return c.json(body);
     } catch (error) {

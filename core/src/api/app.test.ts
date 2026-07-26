@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,8 +80,13 @@ describe("GET /status", () => {
     const body = (await res.json()) as StatusResponse;
     expect(body.status).toBe("ok");
     expect(body.database.connected).toBe(true);
-    expect(body.database.migrations.applied).toBe(9);
-    expect(body.database.migrations.latest).toBe("009_review.sql");
+    // Bewusst gegen den Ordner geprüft statt gegen eine feste Zahl: sonst
+    // bricht dieser Test bei jeder neuen Migration, ohne dass etwas kaputt ist.
+    const files = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    expect(body.database.migrations.applied).toBe(files.length);
+    expect(body.database.migrations.latest).toBe(files.at(-1));
   });
 });
 

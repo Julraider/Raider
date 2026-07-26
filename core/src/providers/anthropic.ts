@@ -35,8 +35,49 @@ const ANTHROPIC_VERSION = "2023-06-01";
 interface RawAnthropicResponse {
   model: string;
   stop_reason: string | null;
-  content: Array<{ type: string; text?: string }>;
+  content: Array<{
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  }>;
   usage: { input_tokens: number; output_tokens: number };
+}
+
+/** Ein Inhaltsblock, wie ihn die Messages-API erwartet. */
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+
+/**
+ * Wandelt eine interne Nachricht in das Anbieterformat. Nachrichten mit
+ * Werkzeug-Anteilen brauchen Inhaltsblöcke statt einfachem Text; alles andere
+ * bleibt ein schlichter String, damit sich am bisherigen Verhalten nichts
+ * ändert.
+ */
+function toRawMessage(message: ChatMessage): { role: string; content: string | ContentBlock[] } {
+  if (message.toolUses && message.toolUses.length > 0) {
+    const blocks: ContentBlock[] = [];
+    if (message.content.trim() !== "") blocks.push({ type: "text", text: message.content });
+    for (const use of message.toolUses) {
+      blocks.push({ type: "tool_use", id: use.id, name: use.name, input: use.input });
+    }
+    return { role: message.role, content: blocks };
+  }
+
+  if (message.toolResults && message.toolResults.length > 0) {
+    const blocks: ContentBlock[] = message.toolResults.map((result) => ({
+      type: "tool_result" as const,
+      tool_use_id: result.toolUseId,
+      content: result.content,
+      ...(result.isError ? { is_error: true } : {}),
+    }));
+    return { role: "user", content: blocks };
+  }
+
+  return { role: message.role, content: message.content };
 }
 
 /** Baut einen Anthropic-Provider; ohne Key wirft er beim Aufruf MissingApiKeyError. */
@@ -57,12 +98,22 @@ export async function complete(
   const system = request.system ?? extractSystem(request.messages);
   const messages = request.messages
     .filter((message) => message.role !== "system")
-    .map((message) => ({ role: message.role, content: message.content }));
+    .map(toRawMessage);
 
   const body = {
     model: request.model ?? config.defaultModel,
     max_tokens: request.maxTokens ?? config.defaultMaxTokens,
     ...(system ? { system } : {}),
+    // Werkzeuge nur mitschicken, wenn welche freigegeben sind.
+    ...(request.tools && request.tools.length > 0
+      ? {
+          tools: request.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema,
+          })),
+        }
+      : {}),
     messages,
   };
 
@@ -91,6 +142,16 @@ function toInternal(raw: RawAnthropicResponse): ChatResponse {
     .map((block) => block.text as string)
     .join("");
 
+  // Werkzeug-Anforderungen wurden früher stillschweigend verworfen — dadurch
+  // konnte das Modell nie ein Werkzeug benutzen.
+  const toolUses = raw.content
+    .filter((block) => block.type === "tool_use" && block.id && block.name)
+    .map((block) => ({
+      id: block.id as string,
+      name: block.name as string,
+      input: block.input ?? {},
+    }));
+
   return {
     role: "assistant",
     content,
@@ -100,6 +161,7 @@ function toInternal(raw: RawAnthropicResponse): ChatResponse {
       inputTokens: raw.usage.input_tokens,
       outputTokens: raw.usage.output_tokens,
     },
+    ...(toolUses.length > 0 ? { toolUses } : {}),
   };
 }
 

@@ -38,10 +38,42 @@ export interface StatusResponse {
 /** Rolle einer Nachricht im internen Format. */
 export type ChatRole = "system" | "user" | "assistant";
 
+/**
+ * Ein Werkzeug, das das Modell selbst aufrufen möchte. Die `id` stammt vom
+ * Anbieter und muss beim Ergebnis unverändert zurückgegeben werden, damit der
+ * Anbieter Aufruf und Ergebnis zuordnen kann.
+ */
+export interface ToolUse {
+  id: string;
+  /** Eindeutiger Name in der Form `server__werkzeug`. */
+  name: string;
+  input: Record<string, unknown>;
+}
+
+/** Das Ergebnis eines Werkzeugaufrufs, das zurück an das Modell geht. */
+export interface ToolResult {
+  toolUseId: string;
+  content: string;
+  isError: boolean;
+}
+
+/** Beschreibung eines Werkzeugs, wie sie das Modell zur Auswahl bekommt. */
+export interface ToolDefinition {
+  /** Eindeutiger Name in der Form `server__werkzeug`. */
+  name: string;
+  description: string;
+  /** JSON-Schema der erwarteten Argumente. */
+  inputSchema: unknown;
+}
+
 /** Eine einzelne Nachricht im internen Format. */
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Nur bei `assistant`: Werkzeuge, die das Modell aufrufen möchte. */
+  toolUses?: ToolUse[];
+  /** Nur bei `user`: Ergebnisse zuvor angeforderter Werkzeuge. */
+  toolResults?: ToolResult[];
 }
 
 /** Anfrage an einen Provider (über den Core, nie direkt vom Client). */
@@ -53,6 +85,12 @@ export interface ChatRequest {
   maxTokens?: number;
   /** Optionaler Systemprompt (alternativ als system-Nachricht in messages). */
   system?: string;
+  /**
+   * Werkzeuge, die das Modell benutzen darf. Enthält AUSSCHLIESSLICH Werkzeuge,
+   * für die der Nutzer ausdrücklich eine Dauerfreigabe erteilt hat — was hier
+   * nicht drinsteht, sieht das Modell gar nicht erst.
+   */
+  tools?: ToolDefinition[];
 }
 
 /** Token-Verbrauch eines Modellaufrufs. */
@@ -71,6 +109,11 @@ export interface ChatResponse {
   /** Grund für das Ende der Generierung (z. B. "end_turn"), oder null. */
   stopReason: string | null;
   usage: ChatUsage;
+  /**
+   * Werkzeuge, die das Modell aufrufen möchte, bevor es weiterantwortet.
+   * Gesetzt, wenn `stopReason === "tool_use"`.
+   */
+  toolUses?: ToolUse[];
 }
 
 /**

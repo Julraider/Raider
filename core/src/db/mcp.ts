@@ -227,3 +227,73 @@ function safeParse(raw: string): unknown {
     return null;
   }
 }
+
+/* --------------------------------------------------------------------------
+ * Dauerfreigaben: welche Werkzeuge Raider von sich aus benutzen darf.
+ *
+ * Grundhaltung „alles verboten, was nicht ausdrücklich erlaubt ist": Der
+ * Werkzeug-Katalog, den das Modell zu sehen bekommt, wird ausschließlich aus
+ * diesen Einträgen gebaut. Ein nicht freigegebenes Werkzeug kann das Modell
+ * also nicht einmal anfordern.
+ * ----------------------------------------------------------------------- */
+
+/** Eine erteilte Dauerfreigabe. */
+export interface ToolPermission {
+  serverId: number;
+  toolName: string;
+  grantedBy: string | null;
+  createdAt: string;
+}
+
+interface ToolPermissionRow {
+  server_id: number;
+  tool_name: string;
+  granted_by: string | null;
+  created_at: string;
+}
+
+/** Alle Dauerfreigaben, optional auf einen Server eingegrenzt. */
+export function listToolPermissions(db: Db, serverId?: number): ToolPermission[] {
+  const rows = (
+    serverId === undefined
+      ? db.prepare("SELECT * FROM mcp_tool_permissions ORDER BY server_id, tool_name").all()
+      : db
+          .prepare("SELECT * FROM mcp_tool_permissions WHERE server_id = ? ORDER BY tool_name")
+          .all(serverId)
+  ) as ToolPermissionRow[];
+  return rows.map((row) => ({
+    serverId: row.server_id,
+    toolName: row.tool_name,
+    grantedBy: row.granted_by,
+    createdAt: row.created_at,
+  }));
+}
+
+/** Erteilt eine Dauerfreigabe (mehrfaches Erteilen ist unschädlich). */
+export function grantToolPermission(
+  db: Db,
+  serverId: number,
+  toolName: string,
+  grantedBy: string | null,
+): void {
+  db.prepare(
+    `INSERT INTO mcp_tool_permissions (server_id, tool_name, granted_by) VALUES (?, ?, ?)
+     ON CONFLICT (server_id, tool_name) DO UPDATE SET granted_by = excluded.granted_by`,
+  ).run(serverId, toolName, grantedBy);
+}
+
+/** Nimmt eine Dauerfreigabe zurück. Liefert true, wenn es eine gab. */
+export function revokeToolPermission(db: Db, serverId: number, toolName: string): boolean {
+  const result = db
+    .prepare("DELETE FROM mcp_tool_permissions WHERE server_id = ? AND tool_name = ?")
+    .run(serverId, toolName);
+  return result.changes > 0;
+}
+
+/** Ist genau dieses Werkzeug dieses Servers freigegeben? */
+export function isToolPermitted(db: Db, serverId: number, toolName: string): boolean {
+  const row = db
+    .prepare("SELECT 1 FROM mcp_tool_permissions WHERE server_id = ? AND tool_name = ?")
+    .get(serverId, toolName);
+  return row !== undefined;
+}
