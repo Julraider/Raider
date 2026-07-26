@@ -9,6 +9,7 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
   const [tools, setTools] = useState<Record<number, string[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
 
   // Formular „neuer Server".
   const [name, setName] = useState("");
@@ -141,13 +142,31 @@ export function ToolsPanel({ client }: { client: RaiderClient }) {
               >
                 {server.enabled ? "Aus" : "An"}
               </button>
-              <button
-                type="button"
-                style={ui.buttonDanger}
-                onClick={() => void act(() => client.deleteMcpServer(server.id))}
-              >
-                Löschen
-              </button>
+              {confirmId === server.id ? (
+                <>
+                  <button
+                    type="button"
+                    style={ui.buttonDanger}
+                    onClick={() => {
+                      setConfirmId(null);
+                      void act(() => client.deleteMcpServer(server.id));
+                    }}
+                  >
+                    Wirklich löschen
+                  </button>
+                  <button type="button" style={ui.buttonLight} onClick={() => setConfirmId(null)}>
+                    Abbrechen
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  style={ui.buttonDanger}
+                  onClick={() => setConfirmId(server.id)}
+                >
+                  Löschen
+                </button>
+              )}
             </div>
           </div>
         </div>
