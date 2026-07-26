@@ -77,4 +77,76 @@ describe("Ollama-Adapter", () => {
       createOllamaProvider(config).complete({ messages: [{ role: "user", content: "Hi" }] }),
     ).rejects.toMatchObject({ name: "ProviderError", status: 503 });
   });
+
+  it("wirft eine verständliche 401-Meldung und wiederholt NICHT", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createOllamaProvider(config).complete({ messages: [{ role: "user", content: "Hi" }] }),
+    ).rejects.toMatchObject({
+      name: "ProviderError",
+      status: 401,
+      message: "Der hinterlegte Schlüssel wurde nicht akzeptiert. Prüf ihn in der Datei .env.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("bricht bei Zeitüberschreitung mit verständlicher Meldung ab, statt endlos zu hängen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+
+    await expect(
+      createOllamaProvider({ ...config, requestTimeoutMs: 30 }).complete({
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    ).rejects.toMatchObject({
+      name: "ProviderError",
+      status: 504,
+      message: "Der Anbieter hat zu lange nicht geantwortet.",
+    });
+  });
+
+  it("wiederholt bei 503 automatisch und übernimmt den zweiten, erfolgreichen Versuch", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ error: "overloaded" }), { status: 503 });
+      }
+      return new Response(JSON.stringify(raw), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await createOllamaProvider(config).complete({
+      messages: [{ role: "user", content: "Hallo" }],
+    });
+
+    expect(res.content).toBe("Hallo zurück!");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("wiederholt einen bereits laufenden Stream nicht, auch bei einem vorübergehenden Fehler", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ error: "overloaded" }), { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      (async () => {
+        const provider = createOllamaProvider(config);
+        for await (const _chunk of provider.stream?.({
+          messages: [{ role: "user", content: "Hi" }],
+        }) ?? []) {
+          // nichts zu tun — wir wollen nur wissen, ob es wiederholt wird
+        }
+      })(),
+    ).rejects.toMatchObject({ name: "ProviderError", status: 503 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
