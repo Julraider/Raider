@@ -1069,3 +1069,44 @@ mark {
   padding: 0 0.15em;
   border-radius: 3px;
 }
+
+/* Mehrere Felder nebeneinander; rutschen bei schmalem Fenster untereinander. */
+.rd-fieldrow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+/* Kennzahl-Kacheln für Übersichten. */
+.rd-statrow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+.rd-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.rd-stat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rd-stat-value {
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}

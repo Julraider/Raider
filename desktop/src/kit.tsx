@@ -95,6 +95,47 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   return <h3 className="rd-section-title">{children}</h3>;
 }
 
+/**
+ * Mehrere Felder nebeneinander, die bei schmalem Fenster automatisch
+ * untereinander rutschen — spart das Nachbauen mit rd-row/rd-grow in jedem
+ * Bereich.
+ */
+export function FieldRow({ children }: { children: ReactNode }) {
+  return <div className="rd-fieldrow">{children}</div>;
+}
+
+/**
+ * Kennzahl-Kachel für Übersichten („Datenbank 12,4 MB"). `tone` färbt nur den
+ * Zustandspunkt, nicht die ganze Kachel — so bleibt die Fläche ruhig.
+ */
+export function Stat({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  tone?: "ok" | "warn";
+}) {
+  return (
+    <div className="rd-stat">
+      <div className="rd-stat-label">
+        {tone !== undefined && <StatusDot tone={tone} />}
+        {label}
+      </div>
+      <div className="rd-stat-value">{value}</div>
+      {hint !== undefined && <div className="rd-hint">{hint}</div>}
+    </div>
+  );
+}
+
+/** Reihe aus Kennzahl-Kacheln, die sich an die Fensterbreite anpasst. */
+export function StatRow({ children }: { children: ReactNode }) {
+  return <div className="rd-statrow">{children}</div>;
+}
+
 /* ---------------------------------------------------------------- Bedienung */
 
 type ButtonVariant = "primary" | "ghost" | "quiet" | "danger";

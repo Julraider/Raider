@@ -206,6 +206,13 @@ const PATHS: Record<string, JSX.Element> = {
     </>
   ),
   filter: <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z" />,
+  assign: (
+    <>
+      <circle cx="9" cy="8" r="4" />
+      <path d="M2 21c0-4 3.2-6.5 7-6.5" />
+      <path d="M16 15v6M13 18h6" />
+    </>
+  ),
   terminal: <path d="m5 7 5 5-5 5M13 17h6" />,
 };
 
