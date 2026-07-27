@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { type Command, CommandPalette } from "./CommandPalette";
 import { coreAccessToken, coreBaseUrl } from "./coreUrl";
 import { Icon } from "./icons";
+import { Onboarding } from "./Onboarding";
 import { AgentsPanel } from "./panels/AgentsPanel";
 import { ChatPanel } from "./panels/ChatPanel";
 import { InboxPanel } from "./panels/InboxPanel";
@@ -52,6 +53,9 @@ function isMac(): boolean {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 }
 
+/** Merkt sich, ob die Ersteinrichtung schon einmal abgeschlossen (oder übersprungen) wurde. */
+const ONBOARDING_DONE_KEY = "raider.onboarding.done";
+
 /**
  * Hülle mit linker Seitenleiste, Befehlspalette und Meldungen. Jeder Bereich
  * ist ein dünner Client des Cores — die Logik steckt im Core.
@@ -64,6 +68,7 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [inbox, setInbox] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -92,6 +97,35 @@ export function App() {
     };
   }, [client]);
 
+  // Einmal beim Start prüfen, ob die Ersteinrichtung fehlt. Ist der Core gar
+  // nicht erreichbar, zeigen wir sie NICHT — das ist dann ein anderes
+  // Problem, und ein Dialog, der nichts speichern kann, wäre nur frustrierend.
+  useEffect(() => {
+    let cancelled = false;
+    async function checkSetup(): Promise<void> {
+      try {
+        const setup = await client.getSetup();
+        const alreadyDone = window.localStorage.getItem(ONBOARDING_DONE_KEY) === "1";
+        if (!cancelled && !setup.ready && !alreadyDone) {
+          setOnboardingOpen(true);
+        }
+      } catch {
+        // Core nicht erreichbar — kein Einrichtungsdialog, der ins Leere liefe.
+      }
+    }
+    void checkSetup();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  /** Schließt die Ersteinrichtung und merkt sich das dauerhaft — egal ob
+   * abgeschlossen oder übersprungen, sie soll nicht bei jedem Start nerven. */
+  function closeOnboarding(): void {
+    window.localStorage.setItem(ONBOARDING_DONE_KEY, "1");
+    setOnboardingOpen(false);
+  }
+
   // Tastenkürzel: Strg/Cmd+K öffnet die Befehlspalette.
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -118,6 +152,12 @@ export function App() {
         label: theme === "dark" ? "Zum hellen Modus wechseln" : "Zum dunklen Modus wechseln",
         icon: theme === "dark" ? "sun" : "moon",
         run: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
+      },
+      {
+        id: "onboarding",
+        label: "Einrichtung erneut öffnen",
+        icon: "info",
+        run: () => setOnboardingOpen(true),
       },
     ],
     [theme],
@@ -211,6 +251,8 @@ export function App() {
           commands={commands}
           onClose={() => setPaletteOpen(false)}
         />
+
+        {onboardingOpen && <Onboarding client={client} onDone={closeOnboarding} />}
       </div>
     </ToastProvider>
   );
