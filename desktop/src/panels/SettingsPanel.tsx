@@ -1,13 +1,27 @@
-import type { HealthReport, RaiderClient, StatsReport } from "@raider/shared";
+import type {
+  HealthReport,
+  OllamaProbe,
+  ProviderChoice,
+  RaiderClient,
+  SetupRequest,
+  SetupStatus,
+  StatsReport,
+} from "@raider/shared";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../icons";
 import {
   Badge,
   Button,
   Card,
+  ConfirmButton,
+  EmptyState,
+  Field,
   IconButton,
+  Input,
   Note,
   Page,
+  Select,
   Skeleton,
   Stat,
   StatRow,
@@ -166,11 +180,27 @@ function formatUptime(seconds: number): string {
   return `${Math.floor(hours / 24)} Tage ${hours % 24} Std.`;
 }
 
+/** Erklärt, warum ein Feld hier nicht bearbeitbar ist, weil `.env` Vorrang hat. */
+function EnvOverrideNote({ children }: { children: ReactNode }) {
+  return (
+    <Note tone="info">
+      <span>
+        <Icon name="lock" size={15} /> {children} Dieser Wert steht in deiner Datei{" "}
+        <code>.env</code> und hat dort Vorrang. Ändere ihn dort — oder entferne ihn, dann kannst du
+        ihn hier einstellen.
+      </span>
+    </Note>
+  );
+}
+
 /**
- * Zeigt, wie Raider gerade eingestellt ist, und erklärt jeden Wert, den man
- * ändern kann. Bewusst nur zum Ansehen: Geheimnisse (API-Schlüssel, Bot-Token)
- * werden nie angezeigt und nie hier gespeichert — sie stehen ausschließlich in
- * der Datei `.env` neben dem Programm.
+ * Zeigt, wie Raider gerade eingestellt ist, und lässt die wichtigsten Werte
+ * — Anbieter, Claude-Schlüssel, Modell, Telegram-Token — direkt hier ändern.
+ * Der Core übernimmt das sofort, ohne Neustart. Geheimnisse (API-Schlüssel,
+ * Bot-Token) werden nie angezeigt, auch nicht gekürzt: der Core speichert sie
+ * in einer eigenen Datei mit Rechten nur für den Besitzer (0600). Steht ein
+ * Wert stattdessen in der Datei `.env`, hat `.env` Vorrang — dann lässt er
+ * sich hier nicht überschreiben, und die Oberfläche sagt das auch dazu.
  */
 export function SettingsPanel({ client }: { client: RaiderClient }) {
   const [health, setHealth] = useState<HealthReport | null>(null);
@@ -178,6 +208,29 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
+
+  // Einrichtung (Anbieter, Schlüssel, Modell, Telegram-Token) — eigener
+  // Ladezustand, weil `getSetup()` unabhängig von Health/Stats läuft.
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupLoading, setSetupLoading] = useState(true);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+
+  // Ollama-Suche: eigener Zustand, weil sie nur gebraucht wird, wenn Ollama
+  // gerade der gewählte Anbieter ist.
+  const [ollama, setOllama] = useState<OllamaProbe | null>(null);
+  const [probing, setProbing] = useState(false);
+
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeyReplacing, setApiKeyReplacing] = useState(false);
+  const [savingApiKey, setSavingApiKey] = useState(false);
+
+  const [modelInput, setModelInput] = useState("");
+  const [savingModel, setSavingModel] = useState(false);
+
+  const [telegramInput, setTelegramInput] = useState("");
+  const [telegramReplacing, setTelegramReplacing] = useState(false);
+  const [savingTelegram, setSavingTelegram] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -192,9 +245,129 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
     }
   }, [client]);
 
+  const loadSetup = useCallback(async () => {
+    try {
+      const s = await client.getSetup();
+      setSetup(s);
+      setSetupError(null);
+    } catch (err) {
+      setSetupError(errorText(err));
+    } finally {
+      setSetupLoading(false);
+    }
+  }, [client]);
+
+  const runProbe = useCallback(async () => {
+    setProbing(true);
+    try {
+      setOllama(await client.probeOllama());
+    } catch (err) {
+      toast.showError(errorText(err));
+    } finally {
+      setProbing(false);
+    }
+  }, [client, toast]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadSetup();
+  }, [load, loadSetup]);
+
+  // Das Modell-Textfeld folgt dem geladenen Stand, solange der Nutzer es
+  // nicht gerade selbst bearbeitet (er tippt ja im selben Feld weiter).
+  useEffect(() => {
+    setModelInput(setup?.model ?? "");
+  }, [setup?.model]);
+
+  // Bei Ollama einmal automatisch nach einem laufenden Server suchen, statt
+  // den Nutzer zuerst zum Klicken zu zwingen.
+  useEffect(() => {
+    if (setup?.provider === "ollama" && ollama === null && !probing) {
+      void runProbe();
+    }
+  }, [setup?.provider, ollama, probing, runProbe]);
+
+  /** Sendet eine Änderung an den Core und übernimmt die Antwort als neuen Stand. */
+  async function applyPatch(patch: SetupRequest, successMessage: string): Promise<boolean> {
+    try {
+      const next = await client.applySetup(patch);
+      setSetup(next);
+      toast.show(successMessage);
+      // Anbieter und Modell wirken sich auch auf die Zustandsanzeige unten aus.
+      void load();
+      return true;
+    } catch (err) {
+      toast.showError(errorText(err));
+      return false;
+    }
+  }
+
+  async function switchProvider(next: ProviderChoice): Promise<void> {
+    if (setup === null || setup.fromEnv.provider || setup.provider === next) return;
+    setSwitchingProvider(true);
+    await applyPatch(
+      { provider: next },
+      next === "anthropic" ? "Claude ist jetzt aktiv." : "Ollama ist jetzt aktiv.",
+    );
+    setSwitchingProvider(false);
+  }
+
+  async function saveApiKey(): Promise<void> {
+    if (apiKeyInput.trim() === "") {
+      toast.showError("Bitte zuerst einen Schlüssel eintragen.");
+      return;
+    }
+    setSavingApiKey(true);
+    const ok = await applyPatch({ anthropicApiKey: apiKeyInput }, "Schlüssel gespeichert.");
+    setSavingApiKey(false);
+    if (ok) {
+      setApiKeyInput("");
+      setApiKeyReplacing(false);
+    }
+  }
+
+  async function removeApiKey(): Promise<void> {
+    const ok = await applyPatch({ anthropicApiKey: "" }, "Schlüssel entfernt.");
+    if (ok) {
+      setApiKeyInput("");
+      setApiKeyReplacing(false);
+    }
+  }
+
+  async function saveModel(): Promise<void> {
+    const value = modelInput.trim();
+    if (value === "" || value === setup?.model) return;
+    setSavingModel(true);
+    await applyPatch({ model: value }, "Modell gespeichert.");
+    setSavingModel(false);
+  }
+
+  async function chooseOllamaModel(model: string): Promise<void> {
+    if (model === "" || model === setup?.model) return;
+    await applyPatch({ model }, "Modell gespeichert.");
+  }
+
+  async function saveTelegramToken(): Promise<void> {
+    if (telegramInput.trim() === "") {
+      toast.showError("Bitte zuerst ein Token eintragen.");
+      return;
+    }
+    setSavingTelegram(true);
+    const ok = await applyPatch({ telegramToken: telegramInput }, "Telegram-Token gespeichert.");
+    setSavingTelegram(false);
+    if (ok) {
+      setTelegramInput("");
+      setTelegramReplacing(false);
+    }
+  }
+
+  async function removeTelegramToken(): Promise<void> {
+    const ok = await applyPatch({ telegramToken: "" }, "Telegram-Token entfernt.");
+    if (ok) {
+      setTelegramInput("");
+      setTelegramReplacing(false);
+    }
+  }
 
   async function copyPath(path: string): Promise<void> {
     try {
@@ -214,8 +387,242 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
     <Page
       title="Einstellungen"
       subtitle="So ist Raider gerade eingestellt — und wo du es änderst."
-      actions={<IconButton icon="refresh" label="Neu laden" onClick={() => void load()} />}
+      actions={
+        <IconButton
+          icon="refresh"
+          label="Neu laden"
+          onClick={() => {
+            void load();
+            void loadSetup();
+          }}
+        />
+      }
     >
+      <Card title="Wie Raider antwortet">
+        {setupLoading && setup === null ? (
+          <Skeleton rows={4} />
+        ) : setupError !== null && setup === null ? (
+          <Note tone="error">{setupError}</Note>
+        ) : setup === null ? (
+          <EmptyState
+            icon="alert"
+            title="Einstellungen nicht geladen"
+            hint="Versuch es oben über „Neu laden“ noch einmal."
+          />
+        ) : (
+          <div className="rd-stack">
+            <div className="rd-stack rd-stack--tight">
+              <div className="rd-label">Anbieter</div>
+              {setup.fromEnv.provider ? (
+                <EnvOverrideNote>
+                  Gerade aktiv: {PROVIDER_NAMES[setup.provider] ?? setup.provider}.
+                </EnvOverrideNote>
+              ) : (
+                <div className="rd-row">
+                  <Button
+                    variant={setup.provider === "anthropic" ? "primary" : "ghost"}
+                    icon="shield"
+                    disabled={switchingProvider}
+                    onClick={() => void switchProvider("anthropic")}
+                  >
+                    Claude
+                  </Button>
+                  <Button
+                    variant={setup.provider === "ollama" ? "primary" : "ghost"}
+                    icon="terminal"
+                    disabled={switchingProvider}
+                    onClick={() => void switchProvider("ollama")}
+                  >
+                    Ollama
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {setup.provider === "anthropic" ? (
+              <div className="rd-stack rd-stack--tight">
+                <div className="rd-label">Claude-Schlüssel</div>
+                {setup.fromEnv.apiKey ? (
+                  <EnvOverrideNote>Dein Claude-Schlüssel ist gesetzt.</EnvOverrideNote>
+                ) : setup.hasApiKey && !apiKeyReplacing ? (
+                  <div className="rd-row">
+                    <Badge tone="ok">hinterlegt</Badge>
+                    <Button
+                      variant="ghost"
+                      small
+                      icon="key"
+                      onClick={() => setApiKeyReplacing(true)}
+                    >
+                      Ersetzen
+                    </Button>
+                    <ConfirmButton
+                      label="Entfernen"
+                      confirmLabel="Schlüssel wirklich entfernen"
+                      onConfirm={() => void removeApiKey()}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <Field
+                      label="Neuer Schlüssel"
+                      hint="Von console.anthropic.com — wird nie angezeigt, auch nicht gekürzt."
+                    >
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={apiKeyInput}
+                        placeholder="sk-ant-…"
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                      />
+                    </Field>
+                    <div className="rd-row">
+                      <Button icon="save" disabled={savingApiKey} onClick={() => void saveApiKey()}>
+                        {savingApiKey ? "Speichert…" : "Speichern"}
+                      </Button>
+                      {setup.hasApiKey && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setApiKeyReplacing(false);
+                            setApiKeyInput("");
+                          }}
+                        >
+                          Abbrechen
+                        </Button>
+                      )}
+                    </div>
+                    {!setup.hasApiKey && (
+                      <Note tone="error">Ohne Schlüssel kann Claude nicht antworten.</Note>
+                    )}
+                  </>
+                )}
+
+                <div className="rd-label" style={{ marginTop: "var(--space-3)" }}>
+                  Modell
+                </div>
+                <div className="rd-row">
+                  <Input
+                    value={modelInput}
+                    style={{ maxWidth: 320 }}
+                    onChange={(e) => setModelInput(e.target.value)}
+                  />
+                  <Button
+                    variant="ghost"
+                    small
+                    disabled={savingModel || modelInput.trim() === "" || modelInput === setup.model}
+                    onClick={() => void saveModel()}
+                  >
+                    {savingModel ? "Speichert…" : "Übernehmen"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rd-stack rd-stack--tight">
+                <div className="rd-label">Ollama-Modell</div>
+                {probing ? (
+                  <Skeleton rows={2} />
+                ) : ollama === null ? (
+                  <Note tone="info">Suche nach einem laufenden Ollama-Server…</Note>
+                ) : ollama.reachable && ollama.models.length > 0 ? (
+                  <Field label="Modell" hint="Wird sofort übernommen.">
+                    <Select
+                      value={setup.model}
+                      onChange={(e) => void chooseOllamaModel(e.target.value)}
+                    >
+                      {!ollama.models.includes(setup.model) && (
+                        <option value={setup.model}>{setup.model}</option>
+                      )}
+                      {ollama.models.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : (
+                  <EmptyState
+                    icon="alert"
+                    title={
+                      ollama.reachable ? "Keine Modelle gefunden" : "Kein Ollama-Server gefunden"
+                    }
+                    hint={
+                      ollama.reachable
+                        ? "Der Server läuft, hat aber noch kein Modell geladen. Lad eines mit „ollama pull …“ herunter und such dann erneut."
+                        : "Ollama läuft nicht, oder ist unter der eingestellten Adresse nicht erreichbar. Starte Ollama und versuch es erneut."
+                    }
+                    action={
+                      <Button variant="ghost" small icon="refresh" onClick={() => void runProbe()}>
+                        Nochmal suchen
+                      </Button>
+                    }
+                  />
+                )}
+              </div>
+            )}
+
+            <div className="rd-stack rd-stack--tight">
+              <div className="rd-label">Telegram-Token</div>
+              <div className="rd-muted">
+                Damit du Raider auch per Telegram erreichst. Das Bot-Token bekommst du von
+                @BotFather in Telegram.
+              </div>
+              {setup.fromEnv.telegramToken ? (
+                <EnvOverrideNote>Dein Telegram-Token ist gesetzt.</EnvOverrideNote>
+              ) : setup.hasTelegramToken && !telegramReplacing ? (
+                <div className="rd-row">
+                  <Badge tone="ok">hinterlegt</Badge>
+                  <Button
+                    variant="ghost"
+                    small
+                    icon="key"
+                    onClick={() => setTelegramReplacing(true)}
+                  >
+                    Ersetzen
+                  </Button>
+                  <ConfirmButton
+                    label="Entfernen"
+                    confirmLabel="Token wirklich entfernen"
+                    onConfirm={() => void removeTelegramToken()}
+                  />
+                </div>
+              ) : (
+                <>
+                  <Field label="Neues Bot-Token">
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      value={telegramInput}
+                      placeholder="123456:ABC-…"
+                      onChange={(e) => setTelegramInput(e.target.value)}
+                    />
+                  </Field>
+                  <div className="rd-row">
+                    <Button
+                      icon="save"
+                      disabled={savingTelegram}
+                      onClick={() => void saveTelegramToken()}
+                    >
+                      {savingTelegram ? "Speichert…" : "Speichern"}
+                    </Button>
+                    {setup.hasTelegramToken && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setTelegramReplacing(false);
+                          setTelegramInput("");
+                        }}
+                      >
+                        Abbrechen
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
       {error !== null && <Note tone="error">{error}</Note>}
 
       {loading && !health ? (
@@ -269,8 +676,8 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
                 </div>
                 {keyNeeded && !provider?.hasApiKey && (
                   <Note tone="error">
-                    Ohne Schlüssel kann Claude nicht antworten. Trag <code>ANTHROPIC_API_KEY</code>{" "}
-                    in die Datei <code>.env</code> ein und starte Raider neu.
+                    Ohne Schlüssel kann Claude nicht antworten. Trag ihn oben bei „Wie Raider
+                    antwortet“ ein.
                   </Note>
                 )}
               </div>
@@ -320,16 +727,23 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
         )
       )}
 
-      <Card title="Was du ändern kannst">
-        <div className="rd-stack">
+      {/*
+        Frühere Kernfunktion, jetzt nur noch zum Nachschlagen: Schlüssel und
+        Anbieter stellt man oben bei „Wie Raider antwortet“ ein. Diese Tabelle
+        bleibt für Fortgeschrittene, die einen Wert über `.env` setzen wollen —
+        `.env` hat dabei weiterhin Vorrang vor den Einstellungen oben.
+      */}
+      <details className="rd-card">
+        <summary className="rd-card-title" style={{ cursor: "pointer" }}>
+          Alle Einstellungen zum Nachschlagen (für Fortgeschrittene)
+        </summary>
+        <div className="rd-stack" style={{ marginTop: "var(--space-3)" }}>
           <Note tone="info">
             <span>
-              <Icon name="info" size={15} />{" "}
-              <strong>Raider stellst du über die Datei „.env“ ein</strong> — sie liegt im
-              Programmordner neben <code>package.json</code>. Kopiere dafür{" "}
-              <code>.env.example</code> nach <code>.env</code>, trag deine Werte ein und starte
-              Raider neu. Schlüssel und Token werden aus Sicherheitsgründen niemals in der
-              Oberfläche angezeigt oder gespeichert.
+              <Icon name="info" size={15} /> Schlüssel und Anbieter stellst du jetzt oben ein — ohne
+              Neustart. Die Datei <code>.env</code> im Programmordner (neben{" "}
+              <code>package.json</code>) ist nur noch für Fortgeschrittene gedacht: Ein dort
+              eingetragener Wert hat Vorrang und lässt sich in der Oberfläche nicht überschreiben.
             </span>
           </Note>
 
@@ -353,7 +767,7 @@ export function SettingsPanel({ client }: { client: RaiderClient }) {
             </div>
           ))}
         </div>
-      </Card>
+      </details>
     </Page>
   );
 }
