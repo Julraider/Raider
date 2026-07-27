@@ -94,8 +94,8 @@ export function OpsPanel({ client }: { client: RaiderClient }) {
         {!loading && health === null && (
           <EmptyState
             icon="Betrieb"
-            title="Kein Core erreichbar"
-            hint="Raider konnte den Core nicht erreichen. Prüfe, ob er läuft, und versuch es erneut."
+            title="Keine Verbindung zum Hintergrundprogramm"
+            hint="Raider konnte sich nicht mit seinem Hintergrundprogramm verbinden. Starte Raider einmal neu — hilft das nicht, notiere dir diese Meldung."
             action={
               <Button icon="refresh" onClick={() => void load()}>
                 Erneut versuchen

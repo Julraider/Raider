@@ -1,9 +1,4 @@
-import type {
-  RaiderClient,
-  TelegramChat,
-  TelegramPairingCode,
-  TelegramStatusResponse,
-} from "@raider/shared";
+import type { RaiderClient, SetupStatus, TelegramChat, TelegramPairingCode } from "@raider/shared";
 import { useCallback, useEffect, useState } from "react";
 import {
   Badge,
@@ -11,7 +6,9 @@ import {
   Card,
   ConfirmButton,
   EmptyState,
+  Field,
   IconButton,
+  Input,
   Note,
   Page,
   SectionTitle,
@@ -51,20 +48,28 @@ type LoadState = "loading" | "error" | "ready";
 /**
  * Telegram-Kopplung: Schritt-für-Schritt-Anleitung, um Raider vom Handy aus
  * erreichbar zu machen, plus Verwaltung der bereits gekoppelten Kontakte.
+ *
+ * Der Bot-Token wird komplett über `setup.apply` im Core verwaltet — er lässt
+ * sich hier hinterlegen, ersetzen und entfernen, ohne `.env` von Hand zu
+ * bearbeiten und ohne Raider neu zu starten. Der Token selbst wird NIE vom
+ * Core zurückgegeben, darum zeigt diese Oberfläche ihn auch nie an.
  */
 export function TelegramPanel({ client }: { client: RaiderClient }) {
   const toast = useToast();
-  const [status, setStatus] = useState<TelegramStatusResponse | null>(null);
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [chats, setChats] = useState<TelegramChat[]>([]);
   const [code, setCode] = useState<TelegramPairingCode | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [creatingCode, setCreatingCode] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [replacing, setReplacing] = useState(false);
+  const [savingToken, setSavingToken] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [s, c] = await Promise.all([client.telegramStatus(), client.listTelegramChats()]);
-      setStatus(s);
+      const [s, c] = await Promise.all([client.getSetup(), client.listTelegramChats()]);
+      setSetup(s);
       setChats(c.chats);
       setError(null);
       setLoadState("ready");
@@ -77,6 +82,27 @@ export function TelegramPanel({ client }: { client: RaiderClient }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Speichert, ersetzt (nicht-leerer Wert) oder entfernt (leerer String) den Token. */
+  async function saveToken(value: string): Promise<void> {
+    setSavingToken(true);
+    try {
+      const next = await client.applySetup({ telegramToken: value });
+      setSetup(next);
+      setTokenInput("");
+      setReplacing(false);
+      toast.show(value === "" ? "Bot-Token entfernt." : "Bot-Token gespeichert.");
+    } catch (err) {
+      toast.showError(errorText(err));
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
+  function startReplace(): void {
+    setTokenInput("");
+    setReplacing(true);
+  }
 
   async function makeCode(): Promise<void> {
     setCreatingCode(true);
@@ -123,25 +149,72 @@ export function TelegramPanel({ client }: { client: RaiderClient }) {
 
       {loadState === "error" && error !== null && <Note tone="error">{error}</Note>}
 
-      {loadState === "ready" && status !== null && (
+      {loadState === "ready" && setup !== null && (
         <>
           <Card title="1. Bot-Token einrichten">
-            <div className="rd-row" style={{ marginBottom: "var(--space-2)" }}>
-              <StatusDot tone={status.enabled ? "ok" : "warn"} />
-              <strong>{status.enabled ? "Bot-Token ist gesetzt" : "Bot-Token fehlt noch"}</strong>
-            </div>
-            {status.enabled ? (
-              <p className="rd-muted">
-                Raider kann Telegram-Nachrichten empfangen und beantworten. Aus Sicherheitsgründen
-                wird der Token selbst nie angezeigt.
-              </p>
+            {setup.fromEnv.telegramToken ? (
+              <div className="rd-stack rd-stack--tight">
+                <div className="rd-row">
+                  <StatusDot tone="ok" />
+                  <strong>Bot-Token ist gesetzt</strong>
+                </div>
+                <Note tone="info">
+                  Der Wert kommt aus der Datei <code className="rd-mono">.env</code> im
+                  Raider-Ordner — dort hat er Vorrang, darum lässt er sich hier nicht ändern.
+                </Note>
+              </div>
+            ) : setup.hasTelegramToken && !replacing ? (
+              <div className="rd-spread">
+                <div className="rd-row">
+                  <Badge tone="ok">Hinterlegt</Badge>
+                  <span className="rd-muted">
+                    Raider kann Telegram-Nachrichten empfangen und beantworten.
+                  </span>
+                </div>
+                <div className="rd-row">
+                  <Button variant="ghost" small onClick={startReplace} disabled={savingToken}>
+                    Ersetzen
+                  </Button>
+                  <ConfirmButton
+                    label="Entfernen"
+                    confirmLabel="Wirklich entfernen"
+                    onConfirm={() => void saveToken("")}
+                  />
+                </div>
+              </div>
             ) : (
-              <Note tone="info">
-                Trag in der Datei <code className="rd-mono">.env</code> im Raider-Ordner den Wert{" "}
-                <code className="rd-mono">RAIDER_TELEGRAM_TOKEN=</code> ein (Bot-Token von{" "}
-                @BotFather in Telegram) und starte Raider neu. Erst danach lässt sich ein
-                Kopplungs-Code erzeugen.
-              </Note>
+              <div className="rd-stack rd-stack--tight">
+                <Field
+                  label="Bot-Token"
+                  hint="Bekommst du von @BotFather in Telegram. Wird nur gespeichert, nie wieder angezeigt."
+                >
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    placeholder="Bot-Token einfügen…"
+                  />
+                </Field>
+                <div className="rd-row">
+                  <Button
+                    variant="primary"
+                    disabled={tokenInput.trim() === "" || savingToken}
+                    onClick={() => void saveToken(tokenInput.trim())}
+                  >
+                    {savingToken ? "Speichere…" : "Speichern"}
+                  </Button>
+                  {replacing && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setReplacing(false)}
+                      disabled={savingToken}
+                    >
+                      Abbrechen
+                    </Button>
+                  )}
+                </div>
+              </div>
             )}
           </Card>
 
@@ -152,11 +225,16 @@ export function TelegramPanel({ client }: { client: RaiderClient }) {
             <Button
               variant="primary"
               icon="key"
-              disabled={!status.enabled || creatingCode}
+              disabled={!setup.hasTelegramToken || creatingCode}
               onClick={() => void makeCode()}
             >
               {creatingCode ? "Erzeuge Code…" : "Kopplungs-Code erzeugen"}
             </Button>
+            {!setup.hasTelegramToken && (
+              <p className="rd-muted" style={{ marginTop: "var(--space-2)", fontSize: "0.85rem" }}>
+                Zuerst oben einen Bot-Token hinterlegen.
+              </p>
+            )}
 
             {code !== null && (
               <div

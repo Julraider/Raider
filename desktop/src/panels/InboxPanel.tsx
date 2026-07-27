@@ -16,6 +16,9 @@ import { errorText } from "../ui";
 // überall dasselbe meinen.
 const MEMORY_LABEL: Record<MemoryStore, string> = { user: "Nutzerprofil", agent: "Notizen" };
 
+/** Erste Seite einer client-seitig begrenzten Liste (der Core paginiert nicht selbst). */
+const PAGE_SIZE = 50;
+
 const STATUSES: PendingWriteStatus[] = ["pending", "approved", "rejected"];
 const STATUS_LABEL: Record<PendingWriteStatus, string> = {
   pending: "Offen",
@@ -114,6 +117,9 @@ export function InboxPanel({ client }: { client: RaiderClient }) {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Über Monate sammeln sich in „Freigegeben"/„Abgelehnt" beliebig viele Einträge an —
+  // der Core liefert alle auf einmal, hier wird darum clientseitig in Seiten gezeigt.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const load = useCallback(
     async (forStatus: PendingWriteStatus) => {
@@ -121,6 +127,7 @@ export function InboxPanel({ client }: { client: RaiderClient }) {
       try {
         const { pendingWrites } = await client.listInbox(forStatus);
         setWrites(pendingWrites);
+        setVisibleCount(PAGE_SIZE);
         setError(null);
       } catch (err) {
         setError(errorText(err));
@@ -216,7 +223,7 @@ export function InboxPanel({ client }: { client: RaiderClient }) {
 
         {!loading &&
           error === null &&
-          writes.map((write) => {
+          writes.slice(0, visibleCount).map((write) => {
             const isSkill = write.kind === "skill";
             const skill = isSkill ? (write.proposal as SkillProposal) : null;
             const memory = !isSkill ? (write.proposal as MemoryProposal) : null;
@@ -284,6 +291,17 @@ export function InboxPanel({ client }: { client: RaiderClient }) {
               </Card>
             );
           })}
+
+        {!loading && error === null && writes.length > visibleCount && (
+          <div className="rd-row" style={{ justifyContent: "center" }}>
+            <span className="rd-muted">
+              {Math.min(visibleCount, writes.length)} von {writes.length}
+            </span>
+            <Button variant="ghost" small onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>
+              Weitere anzeigen
+            </Button>
+          </div>
+        )}
       </div>
     </Page>
   );
