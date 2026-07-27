@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  launchd-Vorlage, damit der Raider-Core auf dem Mac dauerhaft läuft.
+  OPTIONAL — nur für Fortgeschrittene. Die allermeisten brauchen das nicht:
+  Raider ganz normal per Doppelklick starten reicht für den täglichen Gebrauch.
+
+  Wofür das hier gut ist: eine launchd-Vorlage, damit Raiders
+  Hintergrundprogramm auf dem Mac dauerhaft läuft — auch nach einem Neustart
+  und ohne angemeldete Sitzung oder offenes Fenster. Sinnvoll z. B., wenn ein
+  Mac Raider rund um die Uhr bereithalten soll (etwa fürs Telegram-Gateway oder
+  geplante Aufgaben).
+
+  Diese Datei legt man normalerweise nicht selbst an — launchd-Dienste
+  einzurichten ist Admin-Handwerk. Sagt dir das nichts, ignorier diese Datei
+  einfach; Raider funktioniert auch ohne sie bestens.
 
   Einrichten (macOS):
     1. <PFAD-ZU-RAIDER> unten anpassen (dreimal). Pfad zu npm prüfen mit:  which npm
@@ -9,7 +20,9 @@
     4. Stoppen:   launchctl unload ~/Library/LaunchAgents/com.raider.core.plist
     Logs liegen dann unter <PFAD-ZU-RAIDER>/raider-core.log.
 
-  Startet nur den Core (headless). Das Fenster öffnest du bei Bedarf selbst.
+  Startet nur das Hintergrundprogramm (ohne Fenster, per "npm run dev" — genau
+  das, was auch RAIDER_START_NO_WINDOW=1 npm start tut). Das Raider-Fenster
+  öffnest du bei Bedarf weiterhin selbst per Doppelklick auf den Starter.
 -->
 <plist version="1.0">
 <dict>

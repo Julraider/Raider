@@ -116,8 +116,20 @@ function setupStatus(): SetupStatus {
   const { apiKey, provider: name, model } = currentSettings();
   const stored = readSecrets(config.dataDir);
   const telegram = resolveSecret(getTelegramToken(), stored.telegramToken);
+  /*
+   * „Eingerichtet" heißt: Der Nutzer hat sich bewusst entschieden — oder es
+   * steht etwas in der Umgebung. Ohne diese Unterscheidung wäre eine frische
+   * Installation sofort „bereit", weil ohne Schlüssel automatisch Ollama
+   * gewählt wird — auch wenn Ollama gar nicht installiert ist. Die
+   * Ersteinrichtung erschiene dann nie, und der Nutzer liefe beim ersten Satz
+   * in eine unverständliche Fehlermeldung.
+   */
+  const configured =
+    stored.provider !== undefined ||
+    apiKey !== undefined ||
+    process.env.RAIDER_PROVIDER !== undefined;
   return {
-    ready: name === "ollama" || apiKey !== undefined,
+    ready: configured && (name === "ollama" || apiKey !== undefined),
     provider: name,
     model,
     hasApiKey: apiKey !== undefined,

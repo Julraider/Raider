@@ -1,4 +1,15 @@
-# systemd-Vorlage, damit der Raider-Core dauerhaft (auch nach Neustart) läuft.
+# OPTIONAL — nur für Fortgeschrittene. Die allermeisten brauchen das nicht:
+# Raider ganz normal per Doppelklick starten reicht für den täglichen Gebrauch.
+#
+# Wofür das hier gut ist: eine systemd-Vorlage, damit Raiders
+# Hintergrundprogramm dauerhaft läuft — auch nach einem Neustart des Rechners
+# und ohne dass du dich anmeldest oder ein Fenster offen lässt. Sinnvoll z. B.
+# auf einem Server oder Mini-PC, der Raider rund um die Uhr bereithalten soll
+# (etwa fürs Telegram-Gateway oder geplante Aufgaben).
+#
+# Diese Datei schreibt man normalerweise nicht selbst als Nutzer — systemd-Units
+# einzurichten ist Admin-Handwerk. Wenn dir das nichts sagt, ignorier diese
+# Datei einfach; Raider funktioniert auch ohne sie bestens.
 #
 # Einrichten (Linux):
 #   1. <BENUTZER> und <PFAD-ZU-RAIDER> unten anpassen.
@@ -6,8 +17,11 @@
 #   3. Aktivieren: sudo systemctl enable --now raider
 #   4. Läuft es?  systemctl status raider    ·    Logs: journalctl -u raider -f
 #
-# Dieser Dienst startet nur den Core (headless). Das Fenster öffnest du bei
-# Bedarf weiterhin selbst; Telegram/CLI erreichen den Core direkt.
+# Dieser Dienst startet nur das Hintergrundprogramm (ohne Fenster, per
+# "npm run dev" — genau das, was auch RAIDER_START_NO_WINDOW=1 npm start tut).
+# Das Raider-Fenster öffnest du bei Bedarf weiterhin selbst per Doppelklick auf
+# den Starter; Telegram und die Kommandozeilen-Befehle (npm run ...) erreichen
+# das Hintergrundprogramm direkt über die lokale API.
 
 [Unit]
 Description=Raider Core (lokaler KI-Assistent)

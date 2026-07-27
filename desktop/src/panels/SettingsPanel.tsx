@@ -85,7 +85,7 @@ const SETTINGS_GROUPS: Array<{
     rows: [
       {
         name: "RAIDER_PORT",
-        purpose: "Über welchen Anschluss die Oberfläche den Core erreicht.",
+        purpose: "Über welchen Anschluss das Fenster das Hintergrundprogramm erreicht.",
         standard: "4179",
       },
       {
