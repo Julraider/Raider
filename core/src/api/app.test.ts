@@ -59,7 +59,7 @@ function setupApp(chat: ChatFn = stubChat, mcp: McpRunner = stubMcp, limits = de
       backupKeep: 3,
       logRequests: false,
       reviewEnabled: false,
-      provider: { name: "ollama", model: "llama3.2", hasApiKey: false },
+      provider: () => ({ name: "ollama", model: "llama3.2", hasApiKey: false }),
       startedAt: Date.now(),
     },
   });

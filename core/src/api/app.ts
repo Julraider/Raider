@@ -27,6 +27,8 @@ import type {
   SearchResponse,
   SessionListResponse,
   SessionMessagesResponse,
+  SetupRequest,
+  SetupStatus,
   SkillExportResponse,
   SkillListResponse,
   SkillProposal,
@@ -72,6 +74,18 @@ export interface AppConfig {
    * das gibt es nur in Tests, im Betrieb setzt der Core es immer.
    */
   accessToken?: string;
+  /**
+   * Einrichtung aus der Oberfläche heraus. Fehlt sie, gibt es die
+   * Einrichtungs-Routen nicht — Tests laufen damit unverändert.
+   */
+  setup?: {
+    /** Was eingerichtet ist. Gibt NIE ein Geheimnis zurück, nur „gesetzt"/„nicht gesetzt". */
+    status: () => SetupStatus;
+    /** Übernimmt neue Werte und baut den Anbieter neu auf. */
+    apply: (patch: SetupRequest) => Promise<SetupStatus>;
+    /** Prüft, ob ein lokaler Ollama-Server erreichbar ist, und welche Modelle er hat. */
+    probeOllama: () => Promise<{ reachable: boolean; models: string[] }>;
+  };
   /** Betrieb: Sicherungen, Logging und Angaben für den Gesundheitscheck. */
   ops: {
     backupsDir: string;
@@ -79,8 +93,12 @@ export interface AppConfig {
     logRequests: boolean;
     /** Läuft der Hintergrund-Review automatisch? */
     reviewEnabled: boolean;
-    /** Anbieter-Angaben für /health (nie das Geheimnis selbst). */
-    provider: { name: string; model: string; hasApiKey: boolean };
+    /**
+     * Anbieter-Angaben für /health (nie das Geheimnis selbst). Als Funktion,
+     * weil sich der Anbieter zur Laufzeit ändern kann, sobald der Nutzer in der
+     * Einrichtung etwas umstellt.
+     */
+    provider: () => { name: string; model: string; hasApiKey: boolean };
     /** Startzeitpunkt (epoch ms) für die Laufzeit-Anzeige. */
     startedAt: number;
   };
@@ -268,7 +286,7 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
       version,
       uptimeSeconds: Math.round((Date.now() - config.ops.startedAt) / 1000),
       database: { connected, path: db.name },
-      provider: config.ops.provider,
+      provider: config.ops.provider(),
       workers: {
         scheduler: true,
         review: config.ops.reviewEnabled,
@@ -364,6 +382,47 @@ export function createApp(db: Db, chat: ChatFn, mcp: McpRunner, config: AppConfi
    * Ereignisse: `text` (Stück), `tool` (Werkzeug läuft), `done` (fertig),
    * `error` (abgebrochen).
    */
+
+  /* ---------------------------------------------------------------------
+   * Einrichtung: erlaubt es, Anbieter und Schlüssel aus der Oberfläche zu
+   * setzen, statt eine Datei von Hand zu bearbeiten.
+   *
+   * Eiserne Regel: Ein Geheimnis geht hier NUR hinein, nie heraus. Die
+   * Statusantwort sagt ausschließlich, ob etwas gesetzt ist.
+   * ------------------------------------------------------------------- */
+
+  app.get("/setup", (c) => {
+    const setup = config.setup;
+    if (!setup) return c.json({ error: "Einrichtung ist hier nicht verfügbar." }, 501);
+    return c.json(setup.status());
+  });
+
+  app.get("/setup/ollama", async (c) => {
+    const setup = config.setup;
+    if (!setup) return c.json({ error: "Einrichtung ist hier nicht verfügbar." }, 501);
+    return c.json(await setup.probeOllama());
+  });
+
+  app.post("/setup", async (c) => {
+    const setup = config.setup;
+    if (!setup) return c.json({ error: "Einrichtung ist hier nicht verfügbar." }, 501);
+
+    const body = await readJson<SetupRequest>(c);
+    if (!body) return c.json({ error: "Ungültiger Inhalt." }, 400);
+    if (
+      body.provider !== undefined &&
+      body.provider !== "anthropic" &&
+      body.provider !== "ollama"
+    ) {
+      return c.json({ error: "Anbieter muss 'anthropic' oder 'ollama' sein." }, 400);
+    }
+
+    try {
+      return c.json(await setup.apply(body));
+    } catch (error) {
+      return c.json({ error: messageOf(error) }, 500);
+    }
+  });
 
   /** Sitzung umbenennen — die Verlaufsliste soll ordentlich bleiben. */
   app.patch("/sessions/:id", async (c) => {

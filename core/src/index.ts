@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import type { SetupRequest, SetupStatus } from "@raider/shared";
 import { createApp } from "./api/app";
 import type { ChatFn } from "./chat/turn";
 import { getAnthropicApiKey, getTelegramToken, loadConfig } from "./config";
@@ -12,6 +13,7 @@ import { createMcpRunner } from "./mcp/client";
 import { createProvider } from "./providers";
 import { createReviewRunner } from "./review/reviewer";
 import { createScheduler } from "./scheduler/runner";
+import { readSecrets, resolveSecret, writeSecrets } from "./security/secrets";
 import { ensureAccessToken, tokenPath } from "./security/token";
 import { createTelegramApi } from "./telegram/api";
 import { createTelegramGateway } from "./telegram/gateway";
@@ -31,15 +33,48 @@ const db = openDatabase(config.databasePath);
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "db", "migrations");
 const migrations = runMigrations(db, migrationsDir);
 
-// Anbieter anhand der Konfiguration wählen; der Key kommt separat rein.
-const provider = createProvider(config, getAnthropicApiKey());
+/*
+ * Anbieter: Einstellungen kommen aus der Umgebung ODER aus der Datei, die die
+ * Einrichtung in der Oberfläche schreibt (Umgebung hat Vorrang). Der Anbieter
+ * liegt in einer Variablen, damit er nach einer Änderung neu gebaut werden kann
+ * — sonst müsste der Nutzer Raider nach jeder Einstellung neu starten.
+ */
+function currentSettings() {
+  const stored = readSecrets(config.dataDir);
+  const apiKey = resolveSecret(getAnthropicApiKey(), stored.anthropicApiKey);
+  const provider = process.env.RAIDER_PROVIDER
+    ? config.provider
+    : (stored.provider ?? (apiKey ? "anthropic" : "ollama"));
+  const model =
+    process.env.RAIDER_MODEL ??
+    stored.model ??
+    (provider === "ollama" ? config.ollama.defaultModel : config.anthropic.defaultModel);
+  return { apiKey, provider, model };
+}
+
+function buildProvider() {
+  const { apiKey, provider, model } = currentSettings();
+  const effective = {
+    ...config,
+    provider,
+    anthropic: { ...config.anthropic, defaultModel: model },
+    ollama: { ...config.ollama, defaultModel: model },
+  };
+  return createProvider(effective, apiKey);
+}
+
+let provider = buildProvider();
 const chat: ChatFn = (request) => provider.complete(request);
-// Streamen kann nicht jeder Anbieter — fehlt es, bleibt der Stream-Endpunkt aus
-// und die Oberfläche fällt still auf die normale Antwort zurück.
-const chatStream = provider.stream?.bind(provider);
+// Beide Adapter können streamen; der Umweg über die Variable sorgt dafür, dass
+// nach einem Anbieterwechsel sofort der neue benutzt wird.
+const chatStream = (request: Parameters<ChatFn>[0]) => {
+  const stream = provider.stream;
+  if (!stream) throw new Error("Dieser Anbieter kann nicht streamen.");
+  return stream.call(provider, request);
+};
 
 // Telegram-Token separat lesen (Geheimnis) — nur seine Existenz fließt in die App.
-const telegramToken = getTelegramToken();
+let telegramToken = resolveSecret(getTelegramToken(), readSecrets(config.dataDir).telegramToken);
 
 // Zugriffstoken beim ersten Start anlegen; danach nur noch gelesen.
 const accessToken = ensureAccessToken(config.dataDir);
@@ -53,21 +88,89 @@ const app = createApp(db, chat, mcpRunner, {
     enabled: telegramToken !== undefined,
   },
   accessToken,
-  ...(chatStream ? { chatStream } : {}),
+  setup: {
+    status: setupStatus,
+    apply: applySetup,
+    probeOllama,
+  },
+  chatStream,
   ops: {
     backupsDir: config.backupsDir,
     backupKeep: config.backupKeep,
     logRequests: config.logRequests,
     reviewEnabled: config.reviewIntervalSeconds > 0,
-    provider: {
-      name: config.provider,
-      model:
-        config.provider === "ollama" ? config.ollama.defaultModel : config.anthropic.defaultModel,
-      hasApiKey: getAnthropicApiKey() !== undefined,
+    provider: () => {
+      const { apiKey, provider: name, model } = currentSettings();
+      return { name, model, hasApiKey: apiKey !== undefined };
     },
     startedAt,
   },
 });
+
+/**
+ * Was ist eingerichtet? Gibt NIEMALS ein Geheimnis zurück, nur die Auskunft,
+ * ob eines vorliegt — und woher es kommt, damit die Oberfläche sagen kann,
+ * dass ein in `.env` gesetzter Wert hier nicht überschreibbar ist.
+ */
+function setupStatus(): SetupStatus {
+  const { apiKey, provider: name, model } = currentSettings();
+  const stored = readSecrets(config.dataDir);
+  const telegram = resolveSecret(getTelegramToken(), stored.telegramToken);
+  return {
+    ready: name === "ollama" || apiKey !== undefined,
+    provider: name,
+    model,
+    hasApiKey: apiKey !== undefined,
+    hasTelegramToken: telegram !== undefined,
+    fromEnv: {
+      apiKey: getAnthropicApiKey() !== undefined,
+      telegramToken: getTelegramToken() !== undefined,
+      provider: process.env.RAIDER_PROVIDER !== undefined,
+    },
+  };
+}
+
+/**
+ * Übernimmt neue Einstellungen und baut den Anbieter sofort neu auf, damit der
+ * Nutzer nicht neu starten muss. Werte, die aus der Umgebung kommen, werden
+ * nicht angerührt — dort hat `.env` das letzte Wort.
+ */
+async function applySetup(patch: SetupRequest): Promise<SetupStatus> {
+  const write: Parameters<typeof writeSecrets>[1] = {};
+  if (patch.provider !== undefined) write.provider = patch.provider;
+  if (patch.anthropicApiKey !== undefined) write.anthropicApiKey = patch.anthropicApiKey;
+  if (patch.telegramToken !== undefined) write.telegramToken = patch.telegramToken;
+  if (patch.model !== undefined) write.model = patch.model;
+
+  writeSecrets(config.dataDir, write);
+
+  // Anbieter neu aufbauen, damit die Änderung sofort greift.
+  provider = buildProvider();
+  telegramToken = resolveSecret(getTelegramToken(), readSecrets(config.dataDir).telegramToken);
+
+  return setupStatus();
+}
+
+/**
+ * Schaut nach, ob auf diesem Rechner ein Ollama-Server läuft, und welche
+ * Modelle er anbietet. So kann die Einrichtung „ich nutze ein lokales Modell"
+ * anbieten, ohne dass der Nutzer etwas eintippen muss.
+ */
+async function probeOllama(): Promise<{ reachable: boolean; models: string[] }> {
+  try {
+    const response = await fetch(`${config.ollama.baseUrl}/api/tags`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!response.ok) return { reachable: false, models: [] };
+    const data = (await response.json()) as { models?: Array<{ name?: string }> };
+    const models = (data.models ?? [])
+      .map((entry) => entry.name)
+      .filter((name): name is string => typeof name === "string");
+    return { reachable: true, models };
+  } catch {
+    return { reachable: false, models: [] };
+  }
+}
 
 /** Adressen, die nur den eigenen Rechner meinen. */
 function isLoopback(host: string): boolean {

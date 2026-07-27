@@ -595,6 +595,45 @@ export interface HealthReport {
   emergencyStop: boolean;
 }
 
+/**
+ * Einrichtung: was ist konfiguriert, und was fehlt noch?
+ *
+ * Enthält NIEMALS ein Geheimnis — nur die Auskunft, ob eines hinterlegt ist.
+ */
+export interface SetupStatus {
+  /** Ist Raider einsatzbereit (Anbieter gewählt und, falls nötig, Schlüssel da)? */
+  ready: boolean;
+  provider: ProviderChoice;
+  /** Modell, das gerade benutzt wird. */
+  model: string;
+  /** Liegt ein Claude-Schlüssel vor? Der Wert selbst wird nie gesendet. */
+  hasApiKey: boolean;
+  /** Liegt ein Telegram-Token vor? */
+  hasTelegramToken: boolean;
+  /**
+   * Kommt der jeweilige Wert aus der Umgebung (`.env`)? Dann kann die
+   * Oberfläche ihn nicht überschreiben und sagt das auch.
+   */
+  fromEnv: { apiKey: boolean; telegramToken: boolean; provider: boolean };
+}
+
+/** Anbieter, zwischen denen die Einrichtung wählen lässt. */
+export type ProviderChoice = "anthropic" | "ollama";
+
+/** Body für `POST /setup`. Leerer String löscht den jeweiligen Wert. */
+export interface SetupRequest {
+  provider?: ProviderChoice;
+  anthropicApiKey?: string;
+  telegramToken?: string;
+  model?: string;
+}
+
+/** Antwort auf `GET /setup/ollama`. */
+export interface OllamaProbe {
+  reachable: boolean;
+  models: string[];
+}
+
 /** Zählerstände über das ganze System. */
 export interface StatsReport {
   sessions: number;

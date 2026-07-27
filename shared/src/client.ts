@@ -22,6 +22,7 @@ import type {
   MemoryEntry,
   MemoryStore,
   MemoryView,
+  OllamaProbe,
   PendingWrite,
   PendingWriteListResponse,
   PendingWriteStatus,
@@ -35,6 +36,8 @@ import type {
   Session,
   SessionListResponse,
   SessionMessagesResponse,
+  SetupRequest,
+  SetupStatus,
   Skill,
   SkillExportResponse,
   SkillListResponse,
@@ -179,6 +182,12 @@ export interface RaiderClient {
   releaseEmergencyStop(): Promise<EmergencyStopState>;
   runReview(): Promise<ReviewSummary>;
   listReviewRuns(): Promise<ReviewRunListResponse>;
+  /** Was ist eingerichtet? Enthält nie ein Geheimnis, nur „gesetzt"/„nicht gesetzt". */
+  getSetup(): Promise<SetupStatus>;
+  /** Übernimmt Einstellungen (Anbieter, Schlüssel, Modell). Leerer String löscht. */
+  applySetup(patch: SetupRequest): Promise<SetupStatus>;
+  /** Läuft auf diesem Rechner ein Ollama-Server, und welche Modelle hat er? */
+  probeOllama(): Promise<OllamaProbe>;
   health(): Promise<HealthReport>;
   stats(): Promise<StatsReport>;
   createBackup(): Promise<BackupInfo>;
@@ -316,6 +325,9 @@ export function createRaiderClient(baseUrl: string, accessToken?: string): Raide
       requestJson<EmergencyStopState>(`${base}/emergency-stop`, jsonInit("DELETE", {})),
     runReview: () => requestJson<ReviewSummary>(`${base}/review/run`, jsonInit("POST", {})),
     listReviewRuns: () => requestJson<ReviewRunListResponse>(`${base}/review/runs`),
+    getSetup: () => requestJson<SetupStatus>(`${base}/setup`),
+    applySetup: (patch) => requestJson<SetupStatus>(`${base}/setup`, jsonInit("POST", patch)),
+    probeOllama: () => requestJson<OllamaProbe>(`${base}/setup/ollama`),
     health: () => requestJson<HealthReport>(`${base}/health`),
     stats: () => requestJson<StatsReport>(`${base}/stats`),
     createBackup: () => requestJson<BackupInfo>(`${base}/backup`, jsonInit("POST", {})),
