@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatRequest, ChatResponse, Session, ToolResult } from "@raider/shared";
 import { getAgent } from "../db/agents";
+import { isStopped } from "../db/emergency";
 import type { Db } from "../db/index";
 import { recordToolCall } from "../db/mcp";
 import { listMemory } from "../db/memory";
@@ -36,6 +37,15 @@ const MAX_TOOL_ROUNDS = 5;
  * Modelle können — er soll nur den Ausreißer abfangen.
  */
 const DEFAULT_HISTORY_BUDGET_CHARS = 60_000;
+
+/**
+ * Was der Nutzer liest, wenn der Not-Stopp einen Zug einbremst. Bewusst
+ * wörtlich und nicht technisch: Wer den roten Schalter umgelegt hat, will
+ * bestätigt bekommen, dass er gewirkt hat.
+ */
+const STOP_NOTE =
+  "\n\n_(Angehalten: Der Not-Stopp ist aktiv. Raider hat keine Werkzeuge benutzt. " +
+  "Löse den Not-Stopp unter „Betrieb“, wenn es weitergehen soll.)_";
 
 /**
  * Kürzt den Verlauf von hinten: Die jüngsten Nachrichten sind die wichtigsten,
@@ -87,6 +97,8 @@ interface PreparedTurn {
   conversation: ChatMessage[];
   base: Omit<ChatRequest, "messages">;
   permitted: PermittedTool[];
+  /** War der Not-Stopp schon beim Start des Zuges aktiv? */
+  stopped: boolean;
 }
 
 /**
@@ -124,14 +136,21 @@ async function prepareTurn(
   const system = systemParts.length > 0 ? systemParts.join("\n\n") : undefined;
   const model = options.model ?? agent?.model ?? undefined;
 
+  // Not-Stopp: Der Zug bekommt gar keinen Werkzeugkatalog. Ein Modell kann nur
+  // aufrufen, was es kennt — das ist die wirksamste Sperre, und sie kostet
+  // nebenbei den Rundruf an alle MCP-Server. Antworten darf Raider weiterhin;
+  // der rote Schalter hält die Automatik an, nicht das Gespräch.
+  const stopped = isStopped(db);
+
   // Freigegebene Werkzeuge einsammeln. Ohne Freigaben bleibt die Liste leer und
   // der Zug verhält sich exakt wie vorher (ein Modellaufruf, keine Schleife).
-  const permitted = options.tools ? await collectPermittedTools(db, options.tools) : [];
+  const permitted = options.tools && !stopped ? await collectPermittedTools(db, options.tools) : [];
   const toolDefs = toToolDefinitions(permitted);
 
   return {
     conversation,
     permitted,
+    stopped,
     base: {
       ...(system ? { system } : {}),
       ...(model ? { model } : {}),
@@ -154,10 +173,19 @@ export async function runSessionTurn(
   content: string,
   options: TurnOptions = {},
 ): Promise<ChatResponse> {
-  const { conversation, base, permitted } = await prepareTurn(db, session, content, options);
+  const { conversation, base, permitted, stopped } = await prepareTurn(
+    db,
+    session,
+    content,
+    options,
+  );
   let response = await chat({ messages: conversation, ...base });
   let totalIn = response.usage.inputTokens;
   let totalOut = response.usage.outputTokens;
+
+  // Wurde der Not-Stopp mitten im Zug ausgelöst? Dann bricht die Schleife ab
+  // und der Nutzer bekommt das auch zu lesen.
+  let stoppedMidTurn = false;
 
   // Werkzeugrunden: Modell fordert Werkzeuge an → ausführen → Ergebnis zurück.
   let rounds = 0;
@@ -165,6 +193,12 @@ export async function runSessionTurn(
     rounds++;
     const runner = options.tools;
     if (!runner) break;
+    // Vor JEDER Runde neu prüfen: Der Schalter kann während eines langen Zuges
+    // umgelegt werden, und dann muss er sofort greifen.
+    if (isStopped(db)) {
+      stoppedMidTurn = true;
+      break;
+    }
 
     conversation.push({
       role: "assistant",
@@ -183,11 +217,20 @@ export async function runSessionTurn(
     totalOut += response.usage.outputTokens;
   }
 
-  // Wollte das Modell danach immer noch Werkzeuge, war die Obergrenze erreicht.
-  const hitLimit = Boolean(response.toolUses && response.toolUses.length > 0);
-  const answer = hitLimit
-    ? `${response.content}\n\n_(Abgebrochen: Raider hat die Obergrenze von ${MAX_TOOL_ROUNDS} Werkzeugrunden für eine Antwort erreicht.)_`.trim()
-    : response.content;
+  // Wollte das Modell danach immer noch Werkzeuge, war entweder der Not-Stopp
+  // dazwischen oder die Obergrenze erreicht.
+  const wantedMore = Boolean(response.toolUses && response.toolUses.length > 0);
+  let answer = response.content;
+  if (stoppedMidTurn) {
+    answer = `${answer}${STOP_NOTE}`.trim();
+  } else if (wantedMore) {
+    answer =
+      `${answer}\n\n_(Abgebrochen: Raider hat die Obergrenze von ${MAX_TOOL_ROUNDS} Werkzeugrunden für eine Antwort erreicht.)_`.trim();
+  } else if (stopped && options.tools) {
+    // Der Schalter lag schon vorher um: ehrlich sagen, dass ohne Werkzeuge
+    // geantwortet wurde, statt so zu tun, als wäre alles normal gelaufen.
+    answer = `${answer}${STOP_NOTE}`.trim();
+  }
 
   addMessage(db, {
     sessionId: session.id,
@@ -209,6 +252,10 @@ export async function runSessionTurn(
  * Sicherheitsnetz: Es wird noch einmal geprüft, ob das Werkzeug wirklich im
  * Katalog der freigegebenen Werkzeuge steht. Ein Modell, das sich einen Namen
  * ausdenkt, bekommt eine Fehlermeldung statt einer Ausführung.
+ *
+ * Zweites Sicherheitsnetz: der Not-Stopp. Diese Funktion ist die einzige Stelle,
+ * an der Raider je ein Werkzeug ausführt — die Prüfung hier gilt deshalb für
+ * jeden Weg (Chat, Streaming, Zeitplan) gleichermaßen.
  */
 async function executeTool(
   db: Db,
@@ -218,6 +265,16 @@ async function executeTool(
   flatName: string,
   input: Record<string, unknown>,
 ): Promise<ToolResult> {
+  if (isStopped(db)) {
+    return {
+      toolUseId: useId,
+      content:
+        "Der Not-Stopp ist aktiv. Es wurde kein Werkzeug ausgeführt. " +
+        "Sag dem Nutzer, dass er den Not-Stopp lösen muss, und versuch es nicht erneut.",
+      isError: true,
+    };
+  }
+
   const tool = resolveTool(permitted, flatName);
   if (!tool) {
     return {
@@ -301,7 +358,12 @@ export async function* runSessionTurnStreamed(
   content: string,
   options: TurnOptions = {},
 ): AsyncGenerator<TurnEvent> {
-  const { conversation, base, permitted } = await prepareTurn(db, session, content, options);
+  const { conversation, base, permitted, stopped } = await prepareTurn(
+    db,
+    session,
+    content,
+    options,
+  );
 
   let answer = "";
   let totalIn = 0;
@@ -329,6 +391,13 @@ export async function* runSessionTurnStreamed(
     const runner = options.tools;
     if (uses.length === 0 || !runner) break;
 
+    // Not-Stopp mitten im Zug: sofort raus, bevor irgendetwas ausgeführt wird.
+    if (isStopped(db)) {
+      answer += STOP_NOTE;
+      yield { type: "text", text: STOP_NOTE };
+      break;
+    }
+
     // Obergrenze erreicht: ehrlich abbrechen statt weiterzulaufen.
     if (round === MAX_TOOL_ROUNDS) {
       const note = `\n\n_(Abgebrochen: Raider hat die Obergrenze von ${MAX_TOOL_ROUNDS} Werkzeugrunden für eine Antwort erreicht.)_`;
@@ -347,6 +416,13 @@ export async function* runSessionTurnStreamed(
       results.push(result);
     }
     conversation.push({ role: "user", content: "", toolResults: results });
+  }
+
+  // Lag der Schalter schon vor dem Zug um, wurde ohne Werkzeuge geantwortet —
+  // das gehört sichtbar in die Antwort, nicht nur ins Protokoll.
+  if (stopped && options.tools && !answer.endsWith(STOP_NOTE)) {
+    answer += STOP_NOTE;
+    yield { type: "text", text: STOP_NOTE };
   }
 
   const final: ChatResponse = {

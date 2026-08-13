@@ -161,12 +161,12 @@ export function OpsPanel({ client }: { client: RaiderClient }) {
                   </div>
                   <p className="rd-muted" style={{ margin: 0 }}>
                     {engaged
-                      ? `Zeitplan, Telegram-Antworten und Werkzeugaufrufe pausieren${
+                      ? `Zeitplan, Telegram und Werkzeugaufrufe pausieren${
                           stop?.reason ? ` (${stop.reason})` : ""
                         }${
                           stop?.engagedAt ? ` — seit ${formatDateTime(stop.engagedAt)}` : ""
-                        }. Erst nach „Wieder freigeben" läuft Raider wieder automatisch.`
-                      : "Zeitplan, Telegram-Antworten und Werkzeugaufrufe laufen normal. Der Not-Stopp hält im Ernstfall sofort alles an."}
+                        }. Im Chat antwortet Raider weiter, aber ohne Werkzeuge. Erst nach „Wieder freigeben" läuft alles wieder normal.`
+                      : "Zeitplan, Telegram und Werkzeugaufrufe laufen normal. Der Not-Stopp hält den Zeitplan und Telegram sofort an und nimmt Raider alle Werkzeuge weg — auch mitten in einer laufenden Antwort."}
                   </p>
                 </div>
                 <Button
