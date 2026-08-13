@@ -54,7 +54,14 @@ function sessionLabel(session: Session): string {
  * Nachrichten-Aktionen. Die gesamte Logik (Agent, Verlauf, Modelle) liegt im
  * Core; dieser Bereich zeigt sie nur an.
  */
-export function ChatPanel({ client }: { client: RaiderClient }) {
+export function ChatPanel({
+  client,
+  openSessionId,
+}: {
+  client: RaiderClient;
+  /** Sitzung, die beim Öffnen angezeigt werden soll (z. B. das Ergebnis einer geplanten Aufgabe). */
+  openSessionId?: number | null;
+}) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [agentId, setAgentId] = useState<number | null>(null);
@@ -83,11 +90,17 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  /*
+   * Gezeigt werden eigene Chats UND die Läufe geplanter Aufgaben (Kanal
+   * „cron"). Letztere waren vorher herausgefiltert — die Aufgaben liefen also,
+   * aber ihr Ergebnis war im ganzen Programm nirgends zu lesen. Telegram bleibt
+   * draußen, dafür gibt es einen eigenen Bereich.
+   */
   const loadSessions = useCallback(async (): Promise<Session[]> => {
     const result = await client.listSessions();
-    const desktop = result.sessions.filter((s) => s.channel === "desktop");
-    setSessions(desktop);
-    return desktop;
+    const sichtbar = result.sessions.filter((s) => s.channel === "desktop" || s.channel === "cron");
+    setSessions(sichtbar);
+    return sichtbar;
   }, [client]);
 
   const openSession = useCallback(
@@ -120,13 +133,17 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
       try {
         const existing = await loadSessions();
         if (cancelled) return;
-        const first = existing[0];
+        // Beim Start das jüngste eigene Gespräch öffnen. Ein Aufgabenlauf ist
+        // ein Ergebnis zum Nachlesen, kein Ort zum Weiterschreiben — gibt es
+        // noch kein eigenes Gespräch, wird eines angelegt statt in einem
+        // Aufgabenlauf zu landen.
+        const first = existing.find((s) => s.channel === "desktop");
         if (first) {
           await openSession(first);
         } else {
           const session = await client.createSession({ channel: "desktop", agentId: null });
           if (cancelled) return;
-          setSessions([session]);
+          setSessions((prev) => [session, ...prev]);
           setSessionId(session.id);
           setMessages([]);
         }
@@ -139,6 +156,23 @@ export function ChatPanel({ client }: { client: RaiderClient }) {
       cancelled = true;
     };
   }, [client, loadSessions, openSession]);
+
+  // Sprung aus einem anderen Bereich („Ergebnis ansehen" bei den Aufgaben):
+  // die gewünschte Sitzung nachladen und öffnen.
+  useEffect(() => {
+    if (openSessionId === null || openSessionId === undefined) return;
+    let cancelled = false;
+    async function jump(): Promise<void> {
+      const list = await loadSessions().catch(() => [] as Session[]);
+      if (cancelled) return;
+      const wanted = list.find((s) => s.id === openSessionId);
+      if (wanted) await openSession(wanted);
+    }
+    void jump();
+    return () => {
+      cancelled = true;
+    };
+  }, [openSessionId, loadSessions, openSession]);
 
   // Nach neuen Nachrichten nach unten scrollen.
   useEffect(() => {

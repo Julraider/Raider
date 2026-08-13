@@ -149,11 +149,65 @@ function agentName(agents: Agent[], agentId: number | null): string {
 }
 
 /**
+ * Der letzte Lauf — mit Ausgang, nicht nur mit Uhrzeit.
+ *
+ * Vorher stand hier bloß ein Zeitstempel. Eine Aufgabe, die seit vier Wochen
+ * jede Nacht am Anbieter scheitert, sah damit exakt so aus wie eine, die jede
+ * Nacht sauber durchläuft. Jetzt steht der Fehler da, und ein Klick führt zum
+ * vollständigen Ergebnis im Chat.
+ */
+function LastRunCell({
+  task,
+  onOpenSession,
+}: {
+  task: ScheduledTask;
+  onOpenSession?: (sessionId: number) => void;
+}) {
+  if (task.lastRunAt === null) return <span className="rd-muted">Noch nie gelaufen</span>;
+
+  const sessionId = task.lastSessionId;
+  const zeit = formatDateTime(task.lastRunAt);
+
+  return (
+    <div className="rd-stack rd-stack--tight">
+      <span className="rd-row" style={{ gap: "0.4rem", alignItems: "center" }}>
+        {task.lastStatus === "error" ? (
+          <Badge tone="warn">Fehlgeschlagen</Badge>
+        ) : task.lastStatus === "ok" ? (
+          <Badge tone="ok">Erledigt</Badge>
+        ) : null}
+        <span className="rd-muted">{zeit}</span>
+      </span>
+      {task.lastStatus === "error" && task.lastError !== null && (
+        <span className="rd-muted" style={{ fontSize: "0.78rem" }}>
+          {task.lastError}
+        </span>
+      )}
+      {sessionId !== null && onOpenSession && (
+        <Button small variant="quiet" icon="Chat" onClick={() => onOpenSession(sessionId)}>
+          Ergebnis ansehen
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Geplante Aufgaben: anlegen, bearbeiten, an-/abschalten, sofort ausführen,
  * löschen. Die eigentliche Zeitsteuerung läuft im Core — hier wird sie nur
  * angezeigt und bedient.
+ *
+ * `onOpenSession` springt in den Chat zur Sitzung eines Laufs. Ohne diesen Weg
+ * liefen geplante Aufgaben zwar, aber ihr Ergebnis war für den Nutzer nirgends
+ * zu sehen.
  */
-export function TasksPanel({ client }: { client: RaiderClient }) {
+export function TasksPanel({
+  client,
+  onOpenSession,
+}: {
+  client: RaiderClient;
+  onOpenSession?: (sessionId: number) => void;
+}) {
   const toast = useToast();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -236,9 +290,15 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
 
   async function runNow(id: number): Promise<void> {
     try {
-      await client.runScheduledTask(id);
-      toast.show("Aufgabe wurde gestartet.");
+      const result = await client.runScheduledTask(id);
       await load();
+      // Direkt zum Ergebnis springen: Wer „Jetzt ausführen" drückt, will sehen,
+      // was dabei herauskommt — nicht nur, dass es gestartet wurde.
+      if (onOpenSession && result.sessionId) {
+        onOpenSession(result.sessionId);
+      } else {
+        toast.show("Aufgabe wurde ausgeführt.");
+      }
     } catch (err) {
       toast.showError(errorText(err));
     }
@@ -467,7 +527,9 @@ export function TasksPanel({ client }: { client: RaiderClient }) {
                         </Badge>
                       </span>
                     </td>
-                    <td className="rd-muted">{formatDateTime(task.lastRunAt)}</td>
+                    <td>
+                      <LastRunCell task={task} onOpenSession={onOpenSession} />
+                    </td>
                     <td className="rd-muted">{formatDateTime(task.nextRunAt)}</td>
                     <td>
                       <div className="rd-actions">

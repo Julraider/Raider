@@ -69,6 +69,16 @@ export function App() {
   const [inbox, setInbox] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  /**
+   * Sitzung, die der Chat beim nächsten Öffnen anzeigen soll. So kommt man von
+   * einer geplanten Aufgabe zu ihrem Ergebnis, ohne es im Verlauf zu suchen.
+   */
+  const [chatSessionId, setChatSessionId] = useState<number | null>(null);
+
+  function openSessionInChat(sessionId: number): void {
+    setChatSessionId(sessionId);
+    setTab("Chat");
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -233,13 +243,13 @@ export function App() {
         </aside>
 
         <main style={ui.main} aria-label={tab}>
-          {tab === "Chat" && <ChatPanel client={client} />}
+          {tab === "Chat" && <ChatPanel client={client} openSessionId={chatSessionId} />}
           {tab === "Agenten" && <AgentsPanel client={client} />}
           {tab === "Werkzeuge" && <ToolsPanel client={client} />}
           {tab === "Gedächtnis" && <MemoryPanel client={client} />}
           {tab === "Skills" && <SkillsPanel client={client} />}
           {tab === "Posteingang" && <InboxPanel client={client} />}
-          {tab === "Aufgaben" && <TasksPanel client={client} />}
+          {tab === "Aufgaben" && <TasksPanel client={client} onOpenSession={openSessionInChat} />}
           {tab === "Suche" && <SearchPanel client={client} />}
           {tab === "Telegram" && <TelegramPanel client={client} />}
           {tab === "Betrieb" && <OpsPanel client={client} />}

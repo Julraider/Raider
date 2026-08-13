@@ -3,7 +3,7 @@ import type { ChatFn } from "../chat/turn";
 import { runSessionTurn } from "../chat/turn";
 import { isStopped } from "../db/emergency";
 import type { Db } from "../db/index";
-import { createSession } from "../db/repository";
+import { addMessage, createSession } from "../db/repository";
 import { dueTasks, markTaskRun } from "../db/scheduler";
 import type { McpRunner } from "../mcp/types";
 
@@ -32,6 +32,12 @@ const DEFAULT_TICK_MS = 30_000;
  * Führt eine einzelne geplante Aufgabe aus: frische Sitzung (Kanal „cron"),
  * Prompt durch die gemeinsame Dialog-Logik, dann den Lauf vermerken. Wird auch
  * vom „jetzt ausführen"-Endpunkt genutzt.
+ *
+ * Ein Fehlschlag beendet den Zeitgeber nicht — aber er verschwindet auch nicht
+ * mehr. Er landet an zwei Stellen: als Ergebnis an der Aufgabe (dort sieht man
+ * ihn in der Liste) und als Nachricht in der Sitzung (dort steht der
+ * Zusammenhang). Vorher wurde er in einem leeren `catch` geschluckt, und eine
+ * Aufgabe, die jede Nacht scheiterte, sah aus wie eine, die jede Nacht lief.
  */
 export async function runScheduledTask(
   db: Db,
@@ -47,11 +53,18 @@ export async function runScheduledTask(
   });
   try {
     await runSessionTurn(db, chat, session, task.prompt, tools ? { tools } : {});
-  } catch {
-    // Ein Fehlschlag (z. B. Anbieter nicht erreichbar) darf den Lauf nicht
-    // verschlucken: Fälligkeit trotzdem fortschreiben, sonst läuft es sofort neu.
+    markTaskRun(db, task, now, { status: "ok", sessionId: session.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unbekannter Fehler";
+    addMessage(db, {
+      sessionId: session.id,
+      role: "assistant",
+      content: `⚠️ Diese geplante Aufgabe ist fehlgeschlagen:\n\n${message}`,
+    });
+    // Fälligkeit trotzdem fortschreiben, sonst läuft die Aufgabe sofort erneut
+    // und scheitert im Sekundentakt weiter.
+    markTaskRun(db, task, now, { status: "error", error: message, sessionId: session.id });
   }
-  markTaskRun(db, task, now);
   return session.id;
 }
 

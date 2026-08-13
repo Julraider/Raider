@@ -5,6 +5,7 @@ import type { ChatFn } from "../chat/turn";
 import { engageStop } from "../db/emergency";
 import { type Db, openDatabase } from "../db/index";
 import { runMigrations } from "../db/migrate";
+import { getMessages } from "../db/repository";
 import { computeNextRun, createScheduledTask, getScheduledTask } from "../db/scheduler";
 import { createScheduler } from "./runner";
 
@@ -107,5 +108,66 @@ describe("Scheduler", () => {
     expect(result.stopped).toBe(true);
     expect(result.ran).toBe(0);
     expect(calls).toBe(0);
+  });
+});
+
+/*
+ * Ein geplanter Lauf passiert, während niemand hinschaut. Umso wichtiger ist,
+ * dass man hinterher sieht, was passiert ist — und vor allem, was NICHT geklappt
+ * hat. Vorher verschwand jeder Fehlschlag spurlos in einem leeren `catch`.
+ */
+describe("Ergebnis eines geplanten Laufs", () => {
+  function einTick(chat: ChatFn): Promise<{ ran: number; stopped: boolean }> {
+    createScheduledTask(
+      db,
+      { name: "Tick", scheduleKind: "interval", scheduleValue: "60", prompt: "mach was" },
+      new Date("2026-07-21T10:00:00Z"),
+    );
+    const later = new Date("2026-07-21T10:02:00Z");
+    return createScheduler({ db, chat, clock: () => later }).tick();
+  }
+
+  it("vermerkt einen geglückten Lauf samt Sitzung", async () => {
+    await einTick(countingChat);
+
+    const task = getScheduledTask(db, 1);
+    expect(task?.lastStatus).toBe("ok");
+    expect(task?.lastError).toBeNull();
+    expect(task?.lastSessionId).not.toBeNull();
+
+    // Und in dieser Sitzung steht wirklich das Ergebnis.
+    const messages = getMessages(db, task?.lastSessionId ?? 0);
+    expect(messages.at(-1)?.content).toBe("erledigt");
+  });
+
+  it("vermerkt einen Fehlschlag, statt ihn zu verschlucken", async () => {
+    const kaputt: ChatFn = async () => {
+      throw new Error("Anbieter nicht erreichbar");
+    };
+
+    await einTick(kaputt);
+
+    const task = getScheduledTask(db, 1);
+    expect(task?.lastStatus).toBe("error");
+    expect(task?.lastError).toContain("Anbieter nicht erreichbar");
+    // Die Fälligkeit läuft trotzdem weiter — sonst scheitert die Aufgabe im
+    // Sekundentakt neu.
+    expect(task?.lastRunAt).not.toBeNull();
+    expect(new Date(task?.nextRunAt ?? 0).getTime()).toBeGreaterThan(
+      new Date("2026-07-21T10:02:00Z").getTime(),
+    );
+  });
+
+  it("schreibt den Fehler auch in die Sitzung, damit er im Chat auffindbar ist", async () => {
+    const kaputt: ChatFn = async () => {
+      throw new Error("Modell antwortet nicht");
+    };
+
+    await einTick(kaputt);
+
+    const task = getScheduledTask(db, 1);
+    const messages = getMessages(db, task?.lastSessionId ?? 0);
+    expect(messages.at(-1)?.content).toContain("Modell antwortet nicht");
+    expect(messages.at(-1)?.role).toBe("assistant");
   });
 });

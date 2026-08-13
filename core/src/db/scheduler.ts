@@ -1,4 +1,4 @@
-import type { ScheduledTask, ScheduleKind } from "@raider/shared";
+import type { ScheduledTask, ScheduleKind, TaskRunStatus } from "@raider/shared";
 import type { Db } from "./index";
 
 interface TaskRow {
@@ -10,8 +10,23 @@ interface TaskRow {
   prompt: string;
   enabled: number;
   last_run_at: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  last_session_id: number | null;
   next_run_at: string;
   created_at: string;
+}
+
+/**
+ * Ausgang eines Laufs. Ohne Angabe wird das Ergebnis nicht angefasst — das
+ * brauchen ältere Aufrufer und Tests, die nur die Fälligkeit fortschreiben.
+ */
+export interface TaskRunOutcome {
+  status: TaskRunStatus;
+  /** Klartext für den Nutzer, wenn etwas schiefging. */
+  error?: string | null;
+  /** Sitzung, in der der Lauf stattfand. */
+  sessionId?: number | null;
 }
 
 export interface NewScheduledTask {
@@ -122,23 +137,37 @@ export function dueTasks(db: Db, now = new Date()): ScheduledTask[] {
 }
 
 /**
- * Vermerkt einen Lauf: setzt last_run_at und berechnet next_run_at. Eine
- * `once`-Aufgabe wird danach deaktiviert (läuft nicht erneut).
+ * Vermerkt einen Lauf: setzt last_run_at, das Ergebnis und berechnet
+ * next_run_at. Eine `once`-Aufgabe wird danach deaktiviert (läuft nicht
+ * erneut).
+ *
+ * Das Ergebnis wird immer mitgeschrieben, auch ein Fehlschlag. Eine Aufgabe,
+ * die seit Wochen jeden Morgen scheitert, muss man sehen können.
  */
-export function markTaskRun(db: Db, task: ScheduledTask, now = new Date()): void {
+export function markTaskRun(
+  db: Db,
+  task: ScheduledTask,
+  now = new Date(),
+  outcome?: TaskRunOutcome,
+): void {
+  const status = outcome?.status ?? null;
+  const error = outcome?.status === "error" ? (outcome.error ?? "Unbekannter Fehler") : null;
+  const sessionId = outcome?.sessionId ?? null;
+
   if (task.scheduleKind === "once") {
-    db.prepare("UPDATE scheduled_tasks SET last_run_at = ?, enabled = 0 WHERE id = ?").run(
-      now.toISOString(),
-      task.id,
-    );
+    db.prepare(
+      `UPDATE scheduled_tasks
+       SET last_run_at = ?, last_status = ?, last_error = ?, last_session_id = ?, enabled = 0
+       WHERE id = ?`,
+    ).run(now.toISOString(), status, error, sessionId, task.id);
     return;
   }
   const nextRun = computeNextRun(task.scheduleKind, task.scheduleValue, now);
-  db.prepare("UPDATE scheduled_tasks SET last_run_at = ?, next_run_at = ? WHERE id = ?").run(
-    now.toISOString(),
-    nextRun.toISOString(),
-    task.id,
-  );
+  db.prepare(
+    `UPDATE scheduled_tasks
+     SET last_run_at = ?, last_status = ?, last_error = ?, last_session_id = ?, next_run_at = ?
+     WHERE id = ?`,
+  ).run(now.toISOString(), status, error, sessionId, nextRun.toISOString(), task.id);
 }
 
 /**
@@ -185,6 +214,9 @@ function toTask(row: TaskRow): ScheduledTask {
     prompt: row.prompt,
     enabled: row.enabled === 1,
     lastRunAt: row.last_run_at,
+    lastStatus: row.last_status === "ok" || row.last_status === "error" ? row.last_status : null,
+    lastError: row.last_error,
+    lastSessionId: row.last_session_id,
     nextRunAt: row.next_run_at,
     createdAt: row.created_at,
   };

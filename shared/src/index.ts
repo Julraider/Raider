@@ -509,9 +509,22 @@ export interface ScheduledTask {
   prompt: string;
   enabled: boolean;
   lastRunAt: string | null;
+  /**
+   * Wie der letzte Lauf ausging. `null` = noch nie gelaufen. Ohne das sah eine
+   * Aufgabe, die jedes Mal am Anbieter scheitert, genauso aus wie eine, die
+   * sauber durchläuft.
+   */
+  lastStatus: TaskRunStatus | null;
+  /** Klartext des Fehlers beim letzten Lauf (nur bei `lastStatus === "error"`). */
+  lastError: string | null;
+  /** Sitzung des letzten Laufs — dort steht, was dabei herauskam. */
+  lastSessionId: number | null;
   nextRunAt: string;
   createdAt: string;
 }
+
+/** Ausgang eines Laufs einer geplanten Aufgabe. */
+export type TaskRunStatus = "ok" | "error";
 
 export interface CreateScheduledTaskRequest {
   name: string;
