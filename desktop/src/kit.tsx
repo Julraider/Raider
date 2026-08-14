@@ -190,6 +190,13 @@ export function IconButton({
 /**
  * Löschen mit Sicherheitsabfrage: erst „Löschen", nach dem Klick
  * „Wirklich löschen" + „Abbrechen". Nie ohne Rückfrage löschen.
+ *
+ * Der Ruhezustand ist bewusst STILL. Vorher war schon der erste Knopf rot —
+ * damit war auf Seiten wie „Gedächtnis" mit fünf Einträgen das kräftigste
+ * Element des Bildschirms fünfmal die Zerstöraktion, während „Bearbeiten"
+ * daneben ein blasses Symbol blieb. Der Blick landete zuerst auf dem
+ * Gefährlichsten. Das Warnrot gehört an die Stelle, an der es wirklich etwas
+ * bedeutet: bei der scharf geschalteten Bestätigung.
  */
 export function ConfirmButton({
   onConfirm,
@@ -205,7 +212,7 @@ export function ConfirmButton({
   const [armed, setArmed] = useState(false);
   if (!armed) {
     return (
-      <Button variant="danger" small={small} onClick={() => setArmed(true)}>
+      <Button variant="quiet" className="rd-btn--risk" small={small} onClick={() => setArmed(true)}>
         {label}
       </Button>
     );

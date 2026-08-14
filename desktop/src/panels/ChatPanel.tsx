@@ -90,6 +90,22 @@ export function ChatPanel({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  /**
+   * Nachrichten, die beim Öffnen eines Gesprächs schon da waren.
+   *
+   * Vorher blendete sich JEDE Nachricht ein — beim Öffnen eines alten
+   * Gesprächs hob sich damit der komplette Verlauf gleichzeitig an. Das ist
+   * Bewegung ohne Anlass: Sie sagt „das hier ist neu" über Dinge, die Wochen
+   * alt sind. Nur was während des Zuschauens dazukommt, soll sich einblenden.
+   */
+  const preexisting = useRef<Set<number>>(new Set());
+
+  /** Setzt den Verlauf und merkt ihn als „war schon da" (keine Einblendung). */
+  const showHistory = useCallback((list: StoredMessage[]): void => {
+    preexisting.current = new Set(list.map((message) => message.id));
+    setMessages(list);
+  }, []);
+
   /*
    * Gezeigt werden eigene Chats UND die Läufe geplanter Aufgaben (Kanal
    * „cron"). Letztere waren vorher herausgefiltert — die Aufgaben liefen also,
@@ -111,13 +127,13 @@ export function ChatPanel({
       setAgentId(session.agentId);
       try {
         const result = await client.getMessages(session.id);
-        setMessages(result.messages);
+        showHistory(result.messages);
       } catch {
-        setMessages([]);
+        showHistory([]);
         setError(OFFLINE_MESSAGE);
       }
     },
-    [client],
+    [client, showHistory],
   );
 
   // Erststart: Agenten + Verlauf laden, jüngste Sitzung öffnen oder neue anlegen.
@@ -567,7 +583,11 @@ export function ChatPanel({
           {messages.map((message) => {
             const mine = message.role === "user";
             return (
-              <div key={message.id} className="rd-msg rd-rise" style={styles.msg}>
+              <div
+                key={message.id}
+                className={preexisting.current.has(message.id) ? "rd-msg" : "rd-msg rd-rise"}
+                style={styles.msg}
+              >
                 <div style={styles.msgHead}>
                   <span style={styles.role}>{mine ? "Du" : "Raider"}</span>
                   <span style={styles.time}>{clock(message.createdAt)}</span>
